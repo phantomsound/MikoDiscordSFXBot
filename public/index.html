@@ -1,0 +1,89 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miko SFX - Admin</title>
+    <style>
+        :root { --bg: #1e1e2e; --card: #282a36; --input: #181825; --border: #45475a; --text: #cdd6f4; --blue: #89b4fa; --green: #a6e3a1; --red: #f38ba8; --yellow: #f9e2af; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; max-width: 1040px; margin: 0 auto; line-height: 1.4; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 2px solid var(--border); padding-bottom: 1rem; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+        .tile { background: var(--card); padding: 1rem; border-radius: 8px; border: 1px solid var(--border); text-align: center; }
+        input[type="text"] { width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; background: var(--input); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+        input[type="file"] { width: 100%; font-size: 0.8rem; margin-bottom: 0.5rem; }
+        button { width: 100%; padding: 0.6rem; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 0.3rem; }
+        .btn-play { background: var(--blue); color: #11111b; }
+        .btn-upload { background: var(--green); color: #11111b; }
+        .status-dot { height: 10px; width: 10px; background-color: var(--red); border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .status-dot.active { background-color: var(--green); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎙️ Miko SFX Dashboard</h1>
+        <div style="display: flex; gap: 10px;">
+            <button style="width: auto; background: var(--card); color: var(--text); border: 1px solid var(--border);" onclick="window.open('http://localhost:3000', '_blank')">🎧 Miko Music</button>
+            <button style="width: auto; background: var(--green);" onclick="inviteBot()">➕ Invite Bot</button>
+        </div>
+    </div>
+    
+    <div class="grid" id="sfxGrid">Loading...</div>
+
+    <script>
+        function loadConfig() {
+            fetch('/api/config').then(r => r.json()).then(data => {
+                const grid = document.getElementById('sfxGrid');
+                grid.innerHTML = '';
+                data.config.sounds.forEach(s => {
+                    const hasAudio = s.file !== null;
+                    const dotClass = hasAudio ? 'status-dot active' : 'status-dot';
+                    grid.innerHTML += `
+                        <div class="tile">
+                            <div style="margin-bottom: 10px; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                <span class="${dotClass}"></span> Slot ${s.id}
+                            </div>
+                            <input type="text" id="name_${s.id}" value="${s.name}" placeholder="Tile Name">
+                            <input type="file" id="file_${s.id}" accept=".mp3,.wav,.ogg">
+                            <button class="btn-upload" onclick="uploadAudio(${s.id})">💾 Save & Upload</button>
+                            <button class="btn-play" onclick="playAudio(${s.id})" ${!hasAudio ? 'disabled style="opacity:0.5;"' : ''}>▶️ Play Preview</button>
+                        </div>
+                    `;
+                });
+                window.clientId = data.clientId;
+            });
+        }
+
+        function uploadAudio(id) {
+            const fileInput = document.getElementById(`file_${id}`);
+            const nameInput = document.getElementById(`name_${id}`).value;
+            const formData = new FormData();
+            formData.append('slotId', id);
+            formData.append('name', nameInput);
+            if (fileInput.files[0]) formData.append('audio', fileInput.files[0]);
+
+            fetch('/api/upload', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(res => { if (res.success) { alert('Tile updated!'); loadConfig(); } });
+        }
+
+        function playAudio(id) {
+            fetch('/api/play', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ slotId: id }) })
+                .then(r => r.json()).then(res => { if (!res.success) alert(res.message); });
+        }
+
+        function inviteBot() {
+            const id = window.clientId || prompt("Paste your SFX App ID:");
+            if (id) {
+                const a = document.createElement('a');
+                a.href = `https://discord.com/oauth2/authorize?client_id=${id}&permissions=3148800&scope=bot%20applications.commands`;
+                a.target = '_blank';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+        }
+        loadConfig();
+    </script>
+</body>
+</html>
