@@ -10,7 +10,6 @@ const { startBot } = require('./bot');
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
 
@@ -59,27 +58,31 @@ app.post('/api/settings', (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/upload', upload.single('audio'), (req, res) => {
-    const slotId = parseInt(req.body.slotId);
-    const config = getConfig();
-    if (!config.sounds) config.sounds = [];
+app.post('/api/upload', (req, res) => {
+    upload.single('audio')(req, res, function(err) {
+        if (err) return res.json({ success: false, message: err.message });
+        
+        const slotId = parseInt(req.body.slotId);
+        const config = getConfig();
+        if (!config.sounds) config.sounds = [];
 
-    let slot = config.sounds.find(s => s.id === slotId);
-    if (!slot) { slot = { id: slotId, name: `Slot ${slotId}`, file: null }; config.sounds.push(slot); }
-    if (req.body.name && req.body.name.trim() !== "") { slot.name = req.body.name.trim(); }
+        let slot = config.sounds.find(s => s.id === slotId);
+        if (!slot) { slot = { id: slotId, name: `Slot ${slotId}`, file: null }; config.sounds.push(slot); }
+        if (req.body.name && req.body.name.trim() !== "") { slot.name = req.body.name.trim(); }
 
-    if (req.file) {
-        if (slot.file && fs.existsSync(path.resolve(__dirname, slot.file))) { try { fs.unlinkSync(path.resolve(__dirname, slot.file)); } catch(e) {} }
-        const ext = path.extname(req.file.originalname) || '.mp3';
-        const filename = `sfx_${slotId}_${Date.now()}${ext}`;
-        const targetPath = path.join(__dirname, 'uploads', filename);
-        fs.renameSync(req.file.path, targetPath);
-        slot.file = `uploads/${filename}`;
-        logger.info(`Uploaded sound for slot ${slotId}: ${slot.name}`);
-    }
-    saveConfig(config);
-    if (discordClient.refreshPanel) discordClient.refreshPanel();
-    res.json({ success: true });
+        if (req.file) {
+            if (slot.file && fs.existsSync(path.resolve(__dirname, slot.file))) { try { fs.unlinkSync(path.resolve(__dirname, slot.file)); } catch(e) {} }
+            const ext = path.extname(req.file.originalname) || '.mp3';
+            const filename = `sfx_${slotId}_${Date.now()}${ext}`;
+            const targetPath = path.join(__dirname, 'uploads', filename);
+            fs.renameSync(req.file.path, targetPath);
+            slot.file = `uploads/${filename}`;
+            logger.info(`Uploaded sound for slot ${slotId}:${slot.name}`);
+        }
+        saveConfig(config);
+        if (discordClient.refreshPanel) discordClient.refreshPanel();
+        res.json({ success: true });
+    });
 });
 
 function getTargetQueue(guildId) {
@@ -123,9 +126,12 @@ app.post('/api/play', async (req, res) => {
     if (!vc) return res.json({ success: false, message: 'Miko SFX is not connected to a voice channel in this server.' });
 
     try {
-        const port = process.env.PORT || 3001;
-        const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}`;
-        await discordClient.player.play(vc, fileUrl, { nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 } });
+        const absolutePath = path.resolve(__dirname, sound.file);
+        // THE FIX: searchEngine: 'file' explicitly tells the backend to read the absolute path
+        await discordClient.player.play(vc, absolutePath, { 
+            searchEngine: 'file',
+            nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 } 
+        });
         logger.info(`Triggered playback of SFX #${slotId} (${sound.name})`);
         res.json({ success: true });
     } catch (err) {

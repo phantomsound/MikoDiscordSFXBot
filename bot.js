@@ -88,8 +88,10 @@ function startBot() {
     });
 
     async function deployControlPanel(guild, channel, targetTextChannel, interaction = null) {
+        const config = getConfig();
         const queue = player.nodes.create(guild, { metadata: { channel: targetTextChannel, panelMessage: null }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 });
         if (!queue.connection) await queue.connect(channel);
+        if (config.defaultVolume !== undefined) queue.node.setVolume(config.defaultVolume);
         
         await cleanChannel(targetTextChannel, client);
         
@@ -103,7 +105,6 @@ function startBot() {
             new ButtonBuilder().setCustomId('btn_sfx_stop').setLabel('⏹️ Stop SFX').setStyle(ButtonStyle.Danger)
         );
 
-        const config = getConfig();
         const activeSounds = (config.sounds || []).filter(s => s.file);
         const row2 = new ActionRowBuilder();
 
@@ -158,13 +159,14 @@ function startBot() {
                 const sound = (config.sounds || []).find(s => s.id === slotId);
                 if (!sound || !sound.file) return interaction.followUp({ content: '❌ Audio missing.', flags: [ 64 ] });
                 
-                const port = process.env.PORT || 3001;
-                const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}`;
+                const absPath = path.resolve(__dirname, sound.file);
                 const channel = interaction.member.voice.channel;
                 
                 try {
                     const queue = player.nodes.get(interaction.guild.id);
-                    await player.play(channel, fileUrl, { 
+                    // THE FIX: searchEngine: 'file' overrides scrapers for local OS paths
+                    await player.play(channel, absPath, { 
+                        searchEngine: 'file',
                         nodeOptions: { metadata: { channel: interaction.channel, panelMessage: queue?.metadata?.panelMessage }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 },
                         requestedBy: interaction.user 
                     });
