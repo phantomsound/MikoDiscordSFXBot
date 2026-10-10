@@ -33,7 +33,7 @@ async function updatePanel(queue) {
 }
 
 function startBot() {
-    const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+    const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
     const player = new Player(client);
     client.player = player;
     
@@ -146,3 +146,4 @@ function startBot() {
     return client;
 }
 module.exports = { startBot };
+
