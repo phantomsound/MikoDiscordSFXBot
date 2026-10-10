@@ -16,7 +16,7 @@ const upload = multer({ dest: path.join(__dirname, 'uploads') });
 
 function getConfig() { 
     try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8')); } 
-    catch (e) { return { dashboardName: "Miko SFX Dashboard", panelChannelId: "", sounds: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null })) }; } 
+    catch (e) { return { dashboardName: "Miko SFX Dashboard", panelChannelId: "", logChannelId: "", autoHideMessages: false, sounds: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null })) }; } 
 }
 function saveConfig(cfg) { fs.writeFileSync(path.join(__dirname, 'config.json'), JSON.stringify(cfg, null, 2)); }
 
@@ -52,6 +52,8 @@ app.get('/api/voice-channels', (req, res) => {
 app.post('/api/settings', (req, res) => {
     const config = getConfig();
     if (req.body.panelChannelId !== undefined) config.panelChannelId = req.body.panelChannelId;
+    if (req.body.logChannelId !== undefined) config.logChannelId = req.body.logChannelId;
+    if (req.body.autoHideMessages !== undefined) config.autoHideMessages = req.body.autoHideMessages;
     if (req.body.dashboardName !== undefined) config.dashboardName = req.body.dashboardName;
     saveConfig(config);
     res.json({ success: true });
@@ -78,6 +80,24 @@ app.post('/api/upload', upload.single('audio'), (req, res) => {
     saveConfig(config);
     if (discordClient.refreshPanel) discordClient.refreshPanel();
     res.json({ success: true });
+});
+
+app.post('/api/clear-slot', (req, res) => {
+    const slotId = parseInt(req.body.slotId);
+    const config = getConfig();
+    let slot = config.sounds.find(s => s.id === slotId);
+    if (slot) {
+        if (slot.file && fs.existsSync(path.resolve(__dirname, slot.file))) {
+            try { fs.unlinkSync(path.resolve(__dirname, slot.file)); } catch(e) {}
+        }
+        slot.file = null;
+        slot.name = `Slot ${slotId}`;
+        saveConfig(config);
+        logger.info(`Cleared SFX slot ${slotId}`);
+        if (discordClient.refreshPanel) discordClient.refreshPanel();
+        return res.json({ success: true });
+    }
+    res.json({ success: false });
 });
 
 function getTargetQueue(guildId) {
@@ -120,11 +140,9 @@ app.post('/api/play', async (req, res) => {
     if (!vc) return res.json({ success: false, message: 'Miko SFX is not connected to a voice channel in this server.' });
 
     try {
-        const absolutePath = path.resolve(__dirname, sound.file);
-        await discordClient.player.play(vc, absolutePath, {
-            searchEngine: 'file',
-            nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 }
-        });
+        const port = process.env.PORT || 3001;
+        const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}`;
+        await discordClient.player.play(vc, fileUrl, { nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 } });
         logger.info(`Triggered playback of SFX #${slotId} (${sound.name})`);
         res.json({ success: true });
     } catch (err) {

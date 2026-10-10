@@ -6,7 +6,7 @@
     {
       "id": 1,
       "name": "R&M",
-      "file": "uploads/sfx_1_1791658182645.mp3"
+      "file": "uploads/sfx_1_1791658665724.mp3"
     },
     {
       "id": 2,
@@ -63,5 +63,6 @@
       "name": "Slot 12",
       "file": null
     }
-  ]
+  ],
+  "lastVoiceChannelId": "1208952718178132009"
 }

@@ -15,13 +15,33 @@ async function cleanChannel(channel, client) {
     } catch(e) {}
 }
 
+async function logNowPlaying(guild, track, queue) {
+    const config = getConfig();
+    if (config.logChannelId) {
+        try {
+            const channel = guild.channels.cache.get(config.logChannelId);
+            if (channel) {
+                const embed = new EmbedBuilder()
+                    .setColor('#a6e3a1')
+                    .setAuthor({ name: '🔊 SFX Deployed' })
+                    .setTitle(`Playing Sound Effect`)
+                    .setDescription(`**Requested By:** ${track.requestedBy ? track.requestedBy.toString() : 'Remote Dashboard'}`)
+                    .setFooter({ text: `Vol: ${queue.node.volume}% • Miko SFX` })
+                    .setTimestamp();
+                const msg = await channel.send({ embeds: [embed] });
+                if (config.autoHideMessages) setTimeout(() => { msg.delete().catch(()=>{}); }, 60000);
+            }
+        } catch(e) {}
+    }
+}
+
 async function updatePanel(queue) {
     if (!queue || !queue.metadata || !queue.metadata.panelMessage) return;
     try {
         const current = queue.currentTrack;
         const embed = new EmbedBuilder().setColor('#f9e2af').setTitle('🎛️ Miko SFX Control Panel');
         if (current) {
-            embed.addFields({ name: '▶️ Active SFX', value: `**${current.title}** - \`${current.duration}\`` });
+            embed.addFields({ name: '▶️ Active SFX', value: `**Sound Effect Playing** - \`${current.duration}\`` });
             const mode = queue.repeatMode === QueueRepeatMode.TRACK ? 'Track 🔂' : queue.repeatMode === QueueRepeatMode.QUEUE ? 'Queue 🔁' : 'Off ❌';
             embed.setFooter({ text: `Queue: ${queue.tracks.size} sounds | Repeat: ${mode} | Vol: ${queue.node.volume}%` });
         } else {
@@ -33,14 +53,17 @@ async function updatePanel(queue) {
 }
 
 function startBot() {
-    const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+    const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages] });
     const player = new Player(client);
     client.player = player;
     
     player.events.on('error', (q, e) => logger.error(`Player Error: ${e.message}`));
     player.events.on('playerError', (q, e) => logger.error(`Audio Dispatch Error: ${e.message}`));
 
-    player.events.on('playerStart', (queue, track) => { updatePanel(queue); });
+    player.events.on('playerStart', (queue, track) => { 
+        updatePanel(queue); 
+        logNowPlaying(queue.guild, track, queue);
+    });
     player.events.on('audioTrackAdd', (queue) => updatePanel(queue));
     player.events.on('emptyQueue', (queue) => { updatePanel(queue); });
     player.events.on('disconnect', (queue) => { updatePanel(queue); });
@@ -50,9 +73,7 @@ function startBot() {
         try {
             const { AttachmentExtractor } = require('@discord-player/extractor');
             await player.extractors.register(AttachmentExtractor, {});
-            logger.info(`Attachment Extractor registered for local sound playback`);
         } catch(e) {}
-
         logger.info(`🤖 Miko SFX Bot logged in as ${client.user.tag}`);
     });
 
@@ -121,14 +142,13 @@ function startBot() {
                 const sound = (config.sounds || []).find(s => s.id === slotId);
                 if (!sound || !sound.file) return interaction.followUp({ content: '❌ Audio missing.', flags: [ 64 ] });
                 
-                const absPath = path.resolve(__dirname, sound.file);
+                const port = process.env.PORT || 3001;
+                const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}`;
                 const channel = interaction.member.voice.channel;
                 
                 try {
                     const queue = player.nodes.get(interaction.guild.id);
-                    // Explicitly use 'file' searchEngine to force local path extraction
-                    await player.play(channel, absPath, { 
-                        searchEngine: 'file',
+                    await player.play(channel, fileUrl, { 
                         nodeOptions: { metadata: { channel: interaction.channel, panelMessage: queue?.metadata?.panelMessage }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 },
                         requestedBy: interaction.user 
                     });
@@ -146,4 +166,3 @@ function startBot() {
     return client;
 }
 module.exports = { startBot };
-

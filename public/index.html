@@ -80,6 +80,14 @@
                 <label style="display:block; margin-top:8px; font-weight:600; font-size:0.88rem;">Command / Panel Channel:</label>
                 <select id="panelChannelId"><option value="">-- No Restriction --</option></select>
                 
+                <label style="display:block; margin-top:12px; font-weight:600; font-size:0.88rem;">Notification Log Channel:</label>
+                <select id="logChannelId"><option value="">-- Do Not Send Logs --</option></select>
+                
+                <label style="display:flex; align-items:center; gap: 8px; margin-top:15px; font-size:0.9rem; cursor:pointer;">
+                    <input type="checkbox" id="autoHideMessages" style="width:18px; height:18px; accent-color: var(--blue);">
+                    <b>Auto-Hide Discord Messages</b> (Delete 'SFX Deployed' logs after 60s)
+                </label>
+
                 <button onclick="saveToolsConfig()" class="btn-success" style="margin-top: 1.5rem; width: 100%;">💾 Save UI Routing</button>
             </div>
 
@@ -131,6 +139,7 @@
                 storedClientId = data.clientId || '';
                 if (data.config) {
                     if (data.config.dashboardName) document.getElementById('dashTitle').innerText = data.config.dashboardName;
+                    if (data.config.autoHideMessages) document.getElementById('autoHideMessages').checked = true;
                     renderGrid(data.config.sounds || []);
                 }
             }).catch(() => { renderGrid(Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null }))); });
@@ -142,11 +151,16 @@
         function loadChannels() {
             const guildId = getActiveGuildId();
             fetch(`/api/channels?guildId=${guildId}`).then(r => r.json()).then(channels => {
-                const panel = document.getElementById('panelChannelId');
+                const panel = document.getElementById('panelChannelId'), log = document.getElementById('logChannelId');
                 panel.innerHTML = '<option value="">-- No Restriction --</option>';
-                channels.forEach(c => { panel.innerHTML += `<option value="${c.id}">${c.name}</option>`; });
+                log.innerHTML = '<option value="">-- Do Not Send Logs --</option>';
+                channels.forEach(c => { 
+                    panel.innerHTML += `<option value="${c.id}">${c.name}</option>`; 
+                    log.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+                });
                 fetch('/api/config').then(r => r.json()).then(data => {
                     if (data.config && data.config.panelChannelId) panel.value = data.config.panelChannelId;
+                    if (data.config && data.config.logChannelId) log.value = data.config.logChannelId;
                 });
             });
 
@@ -159,7 +173,9 @@
 
         function saveToolsConfig() {
             fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ 
-                panelChannelId: document.getElementById('panelChannelId').value
+                panelChannelId: document.getElementById('panelChannelId').value,
+                logChannelId: document.getElementById('logChannelId').value,
+                autoHideMessages: document.getElementById('autoHideMessages').checked
             })}).then(() => alert(`Tool settings saved!`));
         }
 
@@ -181,8 +197,9 @@
                         <input type="text" id="name_${s.id}" value="${s.name || `Slot ${s.id}`}" placeholder="Tile Label" style="margin-bottom: 6px;">
                         <input type="file" id="file_${s.id}" accept=".mp3,.wav,.ogg" style="font-size: 0.75rem; margin-bottom: 8px;">
                         <div style="display: flex; gap: 6px;">
-                            <button class="btn-success" style="flex: 1;" onclick="uploadAudio(${s.id})">💾 Save</button>
-                            <button class="btn-warning" style="flex: 1;" onclick="playAudio(${s.id})" ${!hasAudio ? 'disabled style="opacity:0.4;"' : ''}>▶️ Play</button>
+                            <button class="btn-success" style="flex: 1.2;" onclick="uploadAudio(${s.id})">💾 Save</button>
+                            <button class="btn-warning" style="flex: 1.2;" onclick="playAudio(${s.id})" ${!hasAudio ? 'disabled style="opacity:0.4;"' : ''}>▶️ Play</button>
+                            <button class="btn-danger" style="flex: 0.6; padding: 0.6rem 0.2rem;" onclick="clearSlot(${s.id})" ${!hasAudio ? 'disabled style="opacity:0.4;"' : ''}>🗑️</button>
                         </div>
                     </div>
                 `;
@@ -201,12 +218,19 @@
             fetch('/api/upload', { method: 'POST', body: formData }).then(r => r.json()).then(res => { if (res.success) { alert(`Slot ${id} updated!`); loadConfig(); } });
         }
 
+        function clearSlot(id) {
+            if(confirm(`Are you sure you want to completely clear the audio file for Slot ${id}?`)) {
+                fetch('/api/clear-slot', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ slotId: id }) })
+                .then(r => r.json()).then(res => { if (res.success) { loadConfig(); } });
+            }
+        }
+
         function playAudio(id) { fetch('/api/play', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ slotId: id, guildId: getActiveGuildId() }) }).then(r => r.json()).then(res => { if (!res.success) alert(res.message); else fetchLogs(); }); }
         function stopAudio() { fetch('/api/control', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action: 'stop', guildId: getActiveGuildId() }) }); }
 
         function manageVoice(action) { const channelId = document.getElementById('voiceChannelSelect').value; fetch('/api/voice', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action, channelId, guildId: getActiveGuildId() }) }).then(r => r.json()).then(res => { if(!res.success) alert(res.message); }); }
 
-        function toggleMute() { const slider = document.getElementById('volSlider'); if (isMuted) { isMuted = false; slider.value = preMuteVol; document.getElementById('muteToggleBtn').innerText = '🔊'; } else { isMuted = true; preMuteVol = slider.value == 0 ? 100 : slider.value; slider.value = 0; document.getElementById('muteToggleBtn').innerText = '🔇'; } setVolume(); }
+        function toggleMute() { const slider = document.getElementById('volSlider'); if (isMuted) { isMuted = false; slider.value = preMuteVol; document.getElementById('muteToggleBtn').innerText = '🔊'; } else { isMuted = true; preMuteVol = slider.value == 0 ? 100 : s.value; slider.value = 0; document.getElementById('muteToggleBtn').innerText = '🔇'; } setVolume(); }
         function setVolume() { const vol = document.getElementById('volSlider').value; document.getElementById('volLabel').innerText = vol; if (vol > 0 && isMuted) { isMuted = false; document.getElementById('muteToggleBtn').innerText = '🔊'; } else if (vol == 0 && !isMuted) { isMuted = true; document.getElementById('muteToggleBtn').innerText = '🔇'; } fetch('/api/volume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ volume: vol, guildId: getActiveGuildId() }) }); }
 
         function refreshQueue() {
