@@ -1,18 +1,67 @@
-﻿{
+{
   "dashboardName": "Miko SFX Dashboard",
   "panelChannelId": "",
+  "logRetentionDays": 7,
   "sounds": [
-    { "id": 1, "name": "SFX 1", "file": null },
-    { "id": 2, "name": "SFX 2", "file": null },
-    { "id": 3, "name": "SFX 3", "file": null },
-    { "id": 4, "name": "SFX 4", "file": null },
-    { "id": 5, "name": "SFX 5", "file": null },
-    { "id": 6, "name": "SFX 6", "file": null },
-    { "id": 7, "name": "SFX 7", "file": null },
-    { "id": 8, "name": "SFX 8", "file": null },
-    { "id": 9, "name": "SFX 9", "file": null },
-    { "id": 10, "name": "SFX 10", "file": null },
-    { "id": 11, "name": "SFX 11", "file": null },
-    { "id": 12, "name": "SFX 12", "file": null }
+    {
+      "id": 1,
+      "name": "R&M",
+      "file": "uploads/sfx_1_1791616634029.mp3"
+    },
+    {
+      "id": 2,
+      "name": "Slot 2",
+      "file": null
+    },
+    {
+      "id": 3,
+      "name": "Slot 3",
+      "file": null
+    },
+    {
+      "id": 4,
+      "name": "Slot 4",
+      "file": null
+    },
+    {
+      "id": 5,
+      "name": "Slot 5",
+      "file": null
+    },
+    {
+      "id": 6,
+      "name": "Slot 6",
+      "file": null
+    },
+    {
+      "id": 7,
+      "name": "Slot 7",
+      "file": null
+    },
+    {
+      "id": 8,
+      "name": "Slot 8",
+      "file": null
+    },
+    {
+      "id": 9,
+      "name": "Slot 9",
+      "file": null
+    },
+    {
+      "id": 10,
+      "name": "Slot 10",
+      "file": null
+    },
+    {
+      "id": 11,
+      "name": "Slot 11",
+      "file": null
+    },
+    {
+      "id": 12,
+      "name": "Slot 12",
+      "file": null
+    }
   ]
 }

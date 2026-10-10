@@ -2,8 +2,11 @@
 const { Player } = require('discord-player');
 const fs = require('fs');
 const path = require('path');
+const logger = require('./logger');
 
-function getConfig() { try { return JSON.parse(fs.readFileSync('./config.json', 'utf-8')); } catch (e) { return {}; } }
+function getConfig() { 
+    try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8')); } catch (e) { return { sounds: [] }; } 
+}
 
 function startBot() {
     const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages] });
@@ -11,39 +14,48 @@ function startBot() {
     client.player = player;
     client.panelMessages = [];
 
+    player.events.on('error', (q, e) => logger.error(`Player Error: ${e.message}`));
+    player.events.on('playerError', (q, e) => logger.error(`Audio Dispatch Error: ${e.message}`));
+
     client.once('clientReady', async () => {
-        const { AttachmentExtractor } = require('@discord-player/extractor');
-        await player.extractors.register(AttachmentExtractor, {});
-        console.log(`🤖 Miko SFX connected as ${client.user.tag}`);
+        try {
+            const { AttachmentExtractor } = require('@discord-player/extractor');
+            await player.extractors.register(AttachmentExtractor, {});
+            logger.info(`Attachment Extractor registered for local sound playback`);
+        } catch(e) { logger.warn(`Extractor registration note: ${e.message}`); }
 
-        const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { 
-            body: [ { name: 'soundboard', description: 'Summons the Miko SFX Soundboard Panel' } ] 
-        });
-        client.guilds.cache.forEach(g => rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, g.id), { body: [{ name: 'soundboard', description: 'Summons the Miko SFX Soundboard' }] }).catch(()=>{}));
-    });
+        logger.info(`🤖 Miko SFX Bot logged in as ${client.user.tag}`);
 
-    client.refreshPanel = async () => {
-        for (const msg of client.panelMessages) {
-            try { await msg.edit(buildPanel()); } catch(e) {}
+        if (process.env.CLIENT_ID && process.env.DISCORD_TOKEN) {
+            const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+            const cmds = [{ name: 'soundboard', description: 'Deploy the interactive Miko SFX soundboard panel' }];
+            try {
+                await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: cmds });
+                client.guilds.cache.forEach(g => rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, g.id), { body: cmds }).catch(()=>{}));
+            } catch(err) { logger.error(`Command registration warning: ${err.message}`); }
         }
-    };
+    });
 
     function buildPanel() {
         const config = getConfig();
-        const embed = new EmbedBuilder().setColor('#f9e2af').setTitle('🎙️ Miko SFX Soundboard');
+        const embed = new EmbedBuilder()
+            .setColor('#f9e2af')
+            .setTitle('🎙️ Miko SFX Interactive Soundboard')
+            .setDescription('Click any active button below to fire instant audio into your voice channel.');
+        
         const rows = [];
         let currentRow = new ActionRowBuilder();
+        const sounds = config.sounds || [];
         
-        config.sounds.forEach((s, i) => {
+        sounds.forEach((s, i) => {
             const btn = new ButtonBuilder()
                 .setCustomId(`sfx_${s.id}`)
-                .setLabel(s.name)
+                .setLabel((s.name || `Slot ${s.id}`).substring(0, 80))
                 .setStyle(s.file ? ButtonStyle.Success : ButtonStyle.Secondary)
                 .setDisabled(!s.file);
             
             currentRow.addComponents(btn);
-            if ((i + 1) % 4 === 0 || i === config.sounds.length - 1) {
+            if ((i + 1) % 4 === 0 || i === sounds.length - 1) {
                 rows.push(currentRow);
                 currentRow = new ActionRowBuilder();
             }
@@ -51,40 +63,52 @@ function startBot() {
         return { embeds: [embed], components: rows };
     }
 
+    client.refreshPanel = async () => {
+        for (const msg of client.panelMessages) {
+            try { await msg.edit(buildPanel()); } catch(e) {}
+        }
+    };
+
     client.on('interactionCreate', async interaction => {
         if (interaction.isChatInputCommand() && interaction.commandName === 'soundboard') {
-            const channel = interaction.member.voice.channel;
-            if (!channel) return interaction.reply({ content: '❌ Join a voice channel first.', flags: [ 64 ] });
+            const channel = interaction.member?.voice?.channel;
+            if (!channel) return interaction.reply({ content: '❌ Join a Voice Channel first to summon SFX.', flags: [ 64 ] });
             
             await interaction.deferReply({ flags: [ 64 ] });
             const queue = player.nodes.create(interaction.guild, { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false });
             if (!queue.connection) await queue.connect(channel);
             
-            const msg = await interaction.channel.send(buildPanel());
+            const panelData = buildPanel();
+            const msg = await interaction.channel.send(panelData);
             client.panelMessages.push(msg);
-            await interaction.followUp({ content: '✅ Soundboard deployed.', flags: [ 64 ] });
+            return interaction.followUp({ content: '✅ SFX Soundboard deployed.', flags: [ 64 ] });
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('sfx_')) {
             const slotId = parseInt(interaction.customId.split('_')[1]);
             const config = getConfig();
-            const sound = config.sounds.find(s => s.id === slotId);
-            if (!sound || !sound.file) return interaction.reply({ content: '❌ Empty tile.', flags: [ 64 ] });
+            const sound = (config.sounds || []).find(s => s.id === slotId);
+            if (!sound || !sound.file) return interaction.reply({ content: '❌ Tile is empty.', flags: [ 64 ] });
 
-            const channel = interaction.member.voice.channel;
-            if (!channel) return interaction.reply({ content: '❌ You must be in a Voice Channel to play SFX.', flags: [ 64 ] });
+            const channel = interaction.member?.voice?.channel;
+            if (!channel) return interaction.reply({ content: '❌ You must be in a Voice Channel to play sound effects.', flags: [ 64 ] });
 
             try {
-                const absolutePath = path.resolve(__dirname, sound.file);
-                await player.play(channel, absolutePath, { nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false } });
-                await interaction.reply({ content: `🔊 Playing: ${sound.name}`, flags: [ 64 ] });
-            } catch (err) {
-                await interaction.reply({ content: `❌ Error: ${err.message}`, flags: [ 64 ] });
+                const absPath = path.resolve(__dirname, sound.file);
+                await player.play(channel, absPath, { nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 } });
+                return interaction.reply({ content: `🔊 Playing: **${sound.name}**`, flags: [ 64 ] });
+            } catch(err) {
+                return interaction.reply({ content: `❌ Playback error: ${err.message}`, flags: [ 64 ] });
             }
         }
     });
 
-    client.login(process.env.DISCORD_TOKEN);
+    if (process.env.DISCORD_TOKEN && !process.env.DISCORD_TOKEN.includes('YOUR_SFX')) {
+        client.login(process.env.DISCORD_TOKEN).catch(e => logger.error(`Login failed: ${e.message}`));
+    } else {
+        logger.warn('Awaiting valid DISCORD_TOKEN in C:\\Apps\\MikoDiscordSFXBot\\.env');
+    }
+
     return client;
 }
 module.exports = { startBot };
