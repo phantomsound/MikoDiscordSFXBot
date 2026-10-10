@@ -109,13 +109,13 @@
     </div>
 
     <script>
-        let isMuted = false, preMuteVol = 100, storedClientId = '';
+        let isMuted = false, preMuteVol = 100, storedClientId = '', isFirstLoad = true;
 
         function getActiveGuildId() { return document.getElementById('guildSelector').value; }
         function switchTab(id) { document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.querySelector(`.tab-btn[onclick="switchTab('${id}')"]`).classList.add('active'); document.getElementById(`tab-${id}`).classList.add('active'); }
         function toggleAccordion(id) { document.getElementById(id).classList.toggle('open'); }
 
-        function switchGuildContext() { loadChannels(); }
+        function switchGuildContext() { loadChannels(); refreshQueue(); }
 
         function loadConfig() {
             fetch('/api/server-info').then(r => r.json()).then(data => {
@@ -136,6 +136,7 @@
             }).catch(() => { renderGrid(Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null }))); });
 
             fetchLogs();
+            refreshQueue();
         }
 
         function loadChannels() {
@@ -194,7 +195,6 @@
             const formData = new FormData();
             formData.append('slotId', id);
             
-            // Critical fix to prevent missing names
             formData.append('name', (nameInput && nameInput.trim() !== '') ? nameInput : `Slot ${id}`);
             
             if (fileInput.files[0]) formData.append('audio', fileInput.files[0]);
@@ -209,6 +209,24 @@
         function toggleMute() { const slider = document.getElementById('volSlider'); if (isMuted) { isMuted = false; slider.value = preMuteVol; document.getElementById('muteToggleBtn').innerText = '🔊'; } else { isMuted = true; preMuteVol = slider.value == 0 ? 100 : slider.value; slider.value = 0; document.getElementById('muteToggleBtn').innerText = '🔇'; } setVolume(); }
         function setVolume() { const vol = document.getElementById('volSlider').value; document.getElementById('volLabel').innerText = vol; fetch('/api/volume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ volume: vol, guildId: getActiveGuildId() }) }); }
 
+        function refreshQueue() {
+            const guildId = getActiveGuildId();
+            fetch(`/api/queue?guildId=${guildId}`).then(r => r.json()).then(data => {
+                if (isFirstLoad && data.volume !== undefined) { 
+                    document.getElementById('volSlider').value = data.volume; 
+                    document.getElementById('volLabel').innerText = data.volume; 
+                    if (data.volume == 0) { isMuted = true; document.getElementById('muteToggleBtn').innerText = '🔇'; } 
+                    isFirstLoad = false; 
+                }
+                if (data.voiceChannelId) {
+                    const dropdown = document.getElementById('voiceChannelSelect');
+                    if (dropdown && dropdown.value !== data.voiceChannelId) {
+                        dropdown.value = data.voiceChannelId;
+                    }
+                }
+            });
+        }
+
         function fetchLogs() { fetch('/api/logs').then(r => r.json()).then(data => { const b = document.getElementById('terminalBox'); b.innerText = data.logs || "No logs recorded yet."; b.scrollTop = b.scrollHeight; }); }
         function restartService() { if (confirm("Restart the Miko SFX service now?")) fetch('/api/system/restart', { method: 'POST' }).then(() => alert('Restart signal sent.')); }
 
@@ -218,8 +236,8 @@
         }
 
         setInterval(fetchLogs, 5000);
+        setInterval(refreshQueue, 3500);
         loadConfig();
     </script>
 </body>
 </html>
-

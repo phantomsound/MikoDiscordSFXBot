@@ -10,8 +10,6 @@ const { startBot } = require('./bot');
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
-
-// CRITICAL FIX: Mounts the uploads folder so Discord can stream the local files over HTTP
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
@@ -68,11 +66,7 @@ app.post('/api/upload', upload.single('audio'), (req, res) => {
 
     let slot = config.sounds.find(s => s.id === slotId);
     if (!slot) { slot = { id: slotId, name: `Slot ${slotId}`, file: null }; config.sounds.push(slot); }
-    
-    // Safety check to ensure name never gets wiped out
-    if (req.body.name && req.body.name.trim() !== "") {
-        slot.name = req.body.name.trim();
-    }
+    if (req.body.name && req.body.name.trim() !== "") { slot.name = req.body.name.trim(); }
 
     if (req.file) {
         if (slot.file && fs.existsSync(path.resolve(__dirname, slot.file))) { try { fs.unlinkSync(path.resolve(__dirname, slot.file)); } catch(e) {} }
@@ -81,11 +75,34 @@ app.post('/api/upload', upload.single('audio'), (req, res) => {
         const targetPath = path.join(__dirname, 'uploads', filename);
         fs.renameSync(req.file.path, targetPath);
         slot.file = `uploads/${filename}`;
-        logger.info(`Uploaded sound for slot ${slotId}:${slot.name}`);
+        logger.info(`Uploaded sound for slot ${slotId}: ${slot.name}`);
     }
     saveConfig(config);
     if (discordClient.refreshPanel) discordClient.refreshPanel();
     res.json({ success: true });
+});
+
+function getTargetQueue(guildId) {
+    if (guildId && discordClient.player.nodes.has(guildId)) return discordClient.player.nodes.get(guildId);
+    return discordClient.player.nodes.cache.first();
+}
+
+app.get('/api/queue', (req, res) => {
+    const guildId = req.query.guildId;
+    const queue = getTargetQueue(guildId);
+    const config = getConfig();
+    let vcId = null;
+    const targetGuild = guildId ? discordClient.guilds.cache.get(guildId) : discordClient.guilds.cache.first();
+    if (targetGuild) {
+        const member = targetGuild.members.cache.get(discordClient.user.id);
+        if (member && member.voice.channelId) vcId = member.voice.channelId;
+    }
+    const finalVcId = vcId || config.lastVoiceChannelId || '';
+    const defVol = config.defaultVolume !== undefined ? config.defaultVolume : 100;
+
+    if (!queue) return res.json({ current: null, tracks: [], volume: defVol, voiceChannelId: finalVcId });
+    const tracks = queue.tracks.toArray().map((t, i) => ({ title: t.title, duration: t.duration, index: i + 1 }));
+    res.json({ current: queue.currentTrack ? queue.currentTrack.title : null, tracks, volume: queue.node.volume, voiceChannelId: finalVcId });
 });
 
 app.post('/api/play', async (req, res) => {
@@ -108,10 +125,7 @@ app.post('/api/play', async (req, res) => {
     try {
         const port = process.env.PORT || 3001;
         const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}`;
-        
-        await discordClient.player.play(vc, fileUrl, {
-            nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 }
-        });
+        await discordClient.player.play(vc, fileUrl, { nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 } });
         logger.info(`Triggered playback of SFX #${slotId} (${sound.name})`);
         res.json({ success: true });
     } catch (err) {
@@ -121,21 +135,25 @@ app.post('/api/play', async (req, res) => {
 });
 
 app.post('/api/control', (req, res) => {
-    const queue = req.body.guildId ? discordClient.player.nodes.get(req.body.guildId) : discordClient.player.nodes.cache.first();
+    const queue = getTargetQueue(req.body.guildId);
     if (!queue) return res.json({ success: false, message: 'No active audio queue.' });
     if (req.body.action === 'stop') { queue.node.setPaused(false); queue.tracks.clear(); queue.node.skip(); }
     res.json({ success: true });
 });
 
 app.post('/api/volume', (req, res) => {
-    const queue = req.body.guildId ? discordClient.player.nodes.get(req.body.guildId) : discordClient.player.nodes.cache.first();
-    if (queue && req.body.volume !== undefined) queue.node.setVolume(parseInt(req.body.volume));
+    const queue = getTargetQueue(req.body.guildId);
+    const vol = parseInt(req.body.volume);
+    if (queue && !isNaN(vol)) queue.node.setVolume(vol);
+    const config = getConfig();
+    config.defaultVolume = vol;
+    saveConfig(config);
     res.json({ success: true });
 });
 
 app.post('/api/voice', async (req, res) => {
     const { action, channelId, guildId } = req.body;
-    const queue = guildId ? discordClient.player.nodes.get(guildId) : discordClient.player.nodes.cache.first();
+    const queue = getTargetQueue(guildId);
     
     if (action === 'disconnect') {
         if (queue) queue.delete();
@@ -147,13 +165,15 @@ app.post('/api/voice', async (req, res) => {
         if (!vc) return res.json({ success: false, message: 'Channel not found.' });
         
         const config = getConfig();
-        const txt = config.panelChannelId ? vc.guild.channels.cache.get(config.panelChannelId) : vc.guild.channels.cache.filter(c=>c.isTextBased()).first();
-        const newQueue = discordClient.player.nodes.create(vc.guild, { metadata: { channel: txt, panelMessage: null }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false });
-                const config = getConfig();
         config.lastVoiceChannelId = channelId;
         saveConfig(config);
+
+        const txt = config.panelChannelId ? vc.guild.channels.cache.get(config.panelChannelId) : vc.guild.channels.cache.filter(c=>c.isTextBased()).first();
+        const newQueue = discordClient.player.nodes.create(vc.guild, { metadata: { channel: txt, panelMessage: null }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false });
         await newQueue.connect(vc);
+        
         if (config.defaultVolume !== undefined) newQueue.node.setVolume(config.defaultVolume);
+        
         logger.info(`SFX Bot joined voice channel: ${vc.name}`);
         return res.json({ success: true });
     }
@@ -173,4 +193,3 @@ app.post('/api/system/restart', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => logger.info(`🎙️ Miko SFX Web UI listening on port ${PORT}`));
-
