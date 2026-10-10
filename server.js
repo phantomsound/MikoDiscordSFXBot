@@ -6,17 +6,17 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const logger = require('./logger');
 const { startBot } = require('./bot');
-const { QueryType } = require('discord-player');
 
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
 
 function getConfig() { 
     try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8')); } 
-    catch (e) { return { dashboardName: "Miko SFX Dashboard", panelChannelId: "", logChannelId: "", autoHideMessages: false, logRetentionDays: 7, sounds: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null })) }; } 
+    catch (e) { return { dashboardName: "Miko SFX Dashboard", panelChannelId: "", sounds: Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null })) }; } 
 }
 function saveConfig(cfg) { fs.writeFileSync(path.join(__dirname, 'config.json'), JSON.stringify(cfg, null, 2)); }
 
@@ -52,38 +52,32 @@ app.get('/api/voice-channels', (req, res) => {
 app.post('/api/settings', (req, res) => {
     const config = getConfig();
     if (req.body.panelChannelId !== undefined) config.panelChannelId = req.body.panelChannelId;
-    if (req.body.logChannelId !== undefined) config.logChannelId = req.body.logChannelId;
-    if (req.body.autoHideMessages !== undefined) config.autoHideMessages = req.body.autoHideMessages;
     if (req.body.dashboardName !== undefined) config.dashboardName = req.body.dashboardName;
     saveConfig(config);
     res.json({ success: true });
 });
 
-app.post('/api/upload', (req, res) => {
-    upload.single('audio')(req, res, function(err) {
-        if (err) return res.json({ success: false, message: err.message });
-        
-        const slotId = parseInt(req.body.slotId);
-        const config = getConfig();
-        if (!config.sounds) config.sounds = [];
+app.post('/api/upload', upload.single('audio'), (req, res) => {
+    const slotId = parseInt(req.body.slotId);
+    const config = getConfig();
+    if (!config.sounds) config.sounds = [];
 
-        let slot = config.sounds.find(s => s.id === slotId);
-        if (!slot) { slot = { id: slotId, name: `Slot ${slotId}`, file: null }; config.sounds.push(slot); }
-        if (req.body.name && req.body.name.trim() !== "") { slot.name = req.body.name.trim(); }
+    let slot = config.sounds.find(s => s.id === slotId);
+    if (!slot) { slot = { id: slotId, name: `Slot ${slotId}`, file: null }; config.sounds.push(slot); }
+    if (req.body.name && req.body.name.trim() !== "") { slot.name = req.body.name.trim(); }
 
-        if (req.file) {
-            if (slot.file && fs.existsSync(path.resolve(__dirname, slot.file))) { try { fs.unlinkSync(path.resolve(__dirname, slot.file)); } catch(e) {} }
-            const ext = path.extname(req.file.originalname) || '.mp3';
-            const filename = `sfx_${slotId}_${Date.now()}${ext}`;
-            const targetPath = path.join(__dirname, 'uploads', filename);
-            fs.renameSync(req.file.path, targetPath);
-            slot.file = `uploads/${filename}`;
-            logger.info(`Uploaded sound for slot ${slotId}:${slot.name}`);
-        }
-        saveConfig(config);
-        if (discordClient.refreshPanel) discordClient.refreshPanel();
-        res.json({ success: true });
-    });
+    if (req.file) {
+        if (slot.file && fs.existsSync(path.resolve(__dirname, slot.file))) { try { fs.unlinkSync(path.resolve(__dirname, slot.file)); } catch(e) {} }
+        const ext = path.extname(req.file.originalname) || '.mp3';
+        const filename = `sfx_${slotId}_${Date.now()}${ext}`;
+        const targetPath = path.join(__dirname, 'uploads', filename);
+        fs.renameSync(req.file.path, targetPath);
+        slot.file = `uploads/${filename}`;
+        logger.info(`Uploaded sound for slot ${slotId}:${slot.name}`);
+    }
+    saveConfig(config);
+    if (discordClient.refreshPanel) discordClient.refreshPanel();
+    res.json({ success: true });
 });
 
 function getTargetQueue(guildId) {
@@ -105,8 +99,7 @@ app.get('/api/queue', (req, res) => {
     const defVol = config.defaultVolume !== undefined ? config.defaultVolume : 100;
 
     if (!queue) return res.json({ current: null, tracks: [], volume: defVol, voiceChannelId: finalVcId });
-    const tracks = queue.tracks.toArray().map((t, i) => ({ title: t.title, duration: t.duration, index: i + 1 }));
-    res.json({ current: queue.currentTrack ? queue.currentTrack.title : null, tracks, volume: queue.node.volume, voiceChannelId: finalVcId });
+    res.json({ current: queue.currentTrack ? queue.currentTrack.title : null, tracks: [], volume: queue.node.volume, voiceChannelId: finalVcId });
 });
 
 app.post('/api/play', async (req, res) => {
@@ -128,10 +121,9 @@ app.post('/api/play', async (req, res) => {
 
     try {
         const absolutePath = path.resolve(__dirname, sound.file);
-        // THE FIX: searchEngine: 'file' explicitly tells the backend to read the absolute path
-        await discordClient.player.play(vc, absolutePath, { 
+        await discordClient.player.play(vc, absolutePath, {
             searchEngine: 'file',
-            nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 } 
+            nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 }
         });
         logger.info(`Triggered playback of SFX #${slotId} (${sound.name})`);
         res.json({ success: true });
@@ -180,7 +172,6 @@ app.post('/api/voice', async (req, res) => {
         await newQueue.connect(vc);
         
         if (config.defaultVolume !== undefined) newQueue.node.setVolume(config.defaultVolume);
-        
         logger.info(`SFX Bot joined voice channel: ${vc.name}`);
         return res.json({ success: true });
     }
@@ -200,4 +191,3 @@ app.post('/api/system/restart', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => logger.info(`🎙️ Miko SFX Web UI listening on port ${PORT}`));
-

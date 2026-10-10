@@ -1,5 +1,5 @@
 ﻿const { Client, GatewayIntentBits, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, EmbedBuilder } = require('discord.js');
-const { Player, QueueRepeatMode, QueryType } = require('discord-player');
+const { Player, QueueRepeatMode } = require('discord-player');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
@@ -10,7 +10,6 @@ async function cleanChannel(channel, client) {
     try {
         const msgs = await channel.messages.fetch({ limit: 50 });
         for (const [id, m] of msgs) { 
-            // Only deletes messages sent by the SFX bot! Will ignore the Music bot completely.
             if (m.author.id === client.user.id) await m.delete().catch(()=>{}); 
         }
     } catch(e) {}
@@ -33,11 +32,6 @@ async function updatePanel(queue) {
     } catch(e) { }
 }
 
-async function ensureStandbyBanner(client) {
-    // Relying on Music Bot's Unified Standby Hub. No standalone generation required.
-}
-}
-
 function startBot() {
     const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
     const player = new Player(client);
@@ -49,7 +43,7 @@ function startBot() {
     player.events.on('playerStart', (queue, track) => { updatePanel(queue); });
     player.events.on('audioTrackAdd', (queue) => updatePanel(queue));
     player.events.on('emptyQueue', (queue) => { updatePanel(queue); });
-    player.events.on('disconnect', (queue) => { updatePanel(queue); ensureStandbyBanner(client); });
+    player.events.on('disconnect', (queue) => { updatePanel(queue); });
     player.events.on('volumeChange', (queue) => updatePanel(queue));
 
     client.once('clientReady', async () => {
@@ -57,19 +51,9 @@ function startBot() {
             const { AttachmentExtractor } = require('@discord-player/extractor');
             await player.extractors.register(AttachmentExtractor, {});
             logger.info(`Attachment Extractor registered for local sound playback`);
-        } catch(e) { logger.warn(`Extractor registration note: ${e.message}`); }
+        } catch(e) {}
 
         logger.info(`🤖 Miko SFX Bot logged in as ${client.user.tag}`);
-        await ensureStandbyBanner(client);
-
-        if (process.env.CLIENT_ID && process.env.DISCORD_TOKEN) {
-            const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-            const cmds = [{ name: 'soundboard', description: 'Deploy the interactive Miko SFX soundboard panel' }];
-            try {
-                await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: cmds });
-                client.guilds.cache.forEach(g => rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, g.id), { body: cmds }).catch(()=>{}));
-            } catch(err) {}
-        }
     });
 
     async function deployControlPanel(guild, channel, targetTextChannel, interaction = null) {
@@ -111,13 +95,6 @@ function startBot() {
 
     client.on('interactionCreate', async interaction => {
         try {
-            if (interaction.isChatInputCommand() && interaction.commandName === 'soundboard') {
-                const channel = interaction.member?.voice?.channel;
-                if (!channel) return interaction.reply({ content: '❌ Join a Voice Channel first to summon SFX.', flags: [ 64 ] });
-                await interaction.deferReply({ flags: [ 64 ] });
-                await deployControlPanel(interaction.guild, channel, interaction.channel, interaction);
-            }
-
             if (interaction.isButton()) {
                 if (interaction.customId === 'btn_sfx_summon') {
                     const channel = interaction.member?.voice?.channel;
@@ -149,7 +126,7 @@ function startBot() {
                 
                 try {
                     const queue = player.nodes.get(interaction.guild.id);
-                    // THE FIX: searchEngine: 'file' overrides scrapers for local OS paths
+                    // Explicitly use 'file' searchEngine to force local path extraction
                     await player.play(channel, absPath, { 
                         searchEngine: 'file',
                         nodeOptions: { metadata: { channel: interaction.channel, panelMessage: queue?.metadata?.panelMessage }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 },
@@ -160,14 +137,12 @@ function startBot() {
                     await interaction.followUp({ content: `❌ Error: ${e.message}`, flags: [ 64 ] });
                 }
             }
-        } catch (err) { try { await interaction.reply({ content: '❌ Action error.', flags: [ 64 ] }); } catch(e){} }
+        } catch (err) {}
     });
 
     if (process.env.DISCORD_TOKEN && !process.env.DISCORD_TOKEN.includes('YOUR_SFX')) {
         client.login(process.env.DISCORD_TOKEN).catch(e => logger.error(`Login failed: ${e.message}`));
     }
-
     return client;
 }
 module.exports = { startBot };
-

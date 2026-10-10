@@ -86,10 +86,10 @@
             <div class="card">
                 <h3>📖 Miko SFX Quick-Start Guide</h3>
                 <div class="accordion-header" onclick="toggleAccordion('guide-1')"><span>1. File Uploads & Playback</span><span>▼</span></div>
-                <div id="guide-1" class="accordion-body">Uploaded audio files are physically saved to <code>C:\Apps\MikoDiscordSFXBot\uploads\</code>. The bot reads them directly from your hard drive, ensuring instant 0-latency streaming.</div>
+                <div id="guide-1" class="accordion-body">Uploaded audio files bypass Discord's strict file system rules by streaming through an invisible local HTTP web server built into the dashboard.</div>
                 
                 <div class="accordion-header" onclick="toggleAccordion('guide-2')"><span>2. Dedicated Standby Hubs</span><span>▼</span></div>
-                <div id="guide-2" class="accordion-body">Miko Music now generates a <b>Unified Command Hub</b>. You no longer need to summon them separately. Just click <b>🎙️ Summon SFX Engine</b> on the Music bot's Standby Hub, and it will drop the SFX soundboard seamlessly below the music controls!</div>
+                <div id="guide-2" class="accordion-body">Because Miko SFX and Miko Music are two independent bots, they will never delete each other's control panels. You can safely assign them both to <code>#music-command-center</code>. They will cleanly stack their Yellow and Blue panels at the bottom of the chat.</div>
             </div>
         </div>
 
@@ -189,15 +189,13 @@
             }
         }
 
-                function uploadAudio(id) {
-            const fileInput = document.getElementById(ile_);
-            const nameInput = document.getElementById(
-ame_).value;
+        function uploadAudio(id) {
+            const fileInput = document.getElementById(`file_${id}`);
+            const nameInput = document.getElementById(`name_${id}`).value;
             const formData = new FormData();
             formData.append('slotId', id);
             
-            // Safely trim and preserve names so they don't blank out
-            formData.append('name', (nameInput && nameInput.trim() !== '') ? nameInput.trim() : Slot );
+            formData.append('name', (nameInput && nameInput.trim() !== '') ? nameInput : `Slot ${id}`);
             
             if (fileInput.files[0]) formData.append('audio', fileInput.files[0]);
             fetch('/api/upload', { method: 'POST', body: formData }).then(r => r.json()).then(res => { if (res.success) { alert(`Slot ${id} updated!`); loadConfig(); } });
@@ -209,7 +207,7 @@ ame_).value;
         function manageVoice(action) { const channelId = document.getElementById('voiceChannelSelect').value; fetch('/api/voice', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action, channelId, guildId: getActiveGuildId() }) }).then(r => r.json()).then(res => { if(!res.success) alert(res.message); }); }
 
         function toggleMute() { const slider = document.getElementById('volSlider'); if (isMuted) { isMuted = false; slider.value = preMuteVol; document.getElementById('muteToggleBtn').innerText = '🔊'; } else { isMuted = true; preMuteVol = slider.value == 0 ? 100 : slider.value; slider.value = 0; document.getElementById('muteToggleBtn').innerText = '🔇'; } setVolume(); }
-        function setVolume() { const vol = document.getElementById('volSlider').value; document.getElementById('volLabel').innerText = vol; fetch('/api/volume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ volume: vol, guildId: getActiveGuildId() }) }); }
+        function setVolume() { const vol = document.getElementById('volSlider').value; document.getElementById('volLabel').innerText = vol; if (vol > 0 && isMuted) { isMuted = false; document.getElementById('muteToggleBtn').innerText = '🔊'; } else if (vol == 0 && !isMuted) { isMuted = true; document.getElementById('muteToggleBtn').innerText = '🔇'; } fetch('/api/volume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ volume: vol, guildId: getActiveGuildId() }) }); }
 
         function refreshQueue() {
             const guildId = getActiveGuildId();
@@ -243,4 +241,3 @@ ame_).value;
     </script>
 </body>
 </html>
-
