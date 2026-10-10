@@ -1,21 +1,71 @@
-﻿const { Client, GatewayIntentBits, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
-const { Player } = require('discord-player');
+﻿const { Client, GatewayIntentBits, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, EmbedBuilder } = require('discord.js');
+const { Player, QueueRepeatMode } = require('discord-player');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
 
-function getConfig() { 
-    try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8')); } catch (e) { return { sounds: [] }; } 
+function getConfig() { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8')); } catch (e) { return { sounds: [] }; } }
+
+async function cleanChannel(channel, client) {
+    try {
+        const msgs = await channel.messages.fetch({ limit: 50 });
+        for (const [id, m] of msgs) { 
+            // Only deletes messages sent by the SFX bot! Will ignore the Music bot completely.
+            if (m.author.id === client.user.id) await m.delete().catch(()=>{}); 
+        }
+    } catch(e) {}
+}
+
+async function updatePanel(queue) {
+    if (!queue || !queue.metadata || !queue.metadata.panelMessage) return;
+    try {
+        const current = queue.currentTrack;
+        const embed = new EmbedBuilder().setColor('#f9e2af').setTitle('🎛️ Miko SFX Control Panel');
+        if (current) {
+            embed.addFields({ name: '▶️ Active SFX', value: `**${current.title}** - \`${current.duration}\`` });
+            const mode = queue.repeatMode === QueueRepeatMode.TRACK ? 'Track 🔂' : queue.repeatMode === QueueRepeatMode.QUEUE ? 'Queue 🔁' : 'Off ❌';
+            embed.setFooter({ text: `Queue: ${queue.tracks.size} sounds | Repeat: ${mode} | Vol: ${queue.node.volume}%` });
+        } else {
+            embed.setDescription('*SFX Engine standing by. Select a sound effect to broadcast.*');
+            embed.setFooter({ text: `Engine Idle • Ready for Audio` });
+        }
+        await queue.metadata.panelMessage.edit({ embeds: [embed] });
+    } catch(e) { }
+}
+
+async function ensureStandbyBanner(client) {
+    const config = getConfig();
+    if (!config.panelChannelId) return;
+    try {
+        const channel = client.channels.cache.get(config.panelChannelId);
+        if (!channel || !channel.isTextBased()) return;
+
+        await cleanChannel(channel, client);
+        
+        const embed = new EmbedBuilder()
+            .setColor('#f9e2af')
+            .setTitle('🎙️ Miko SFX Standby Hub')
+            .setDescription('Click below to summon the Soundboard Engine into your active voice channel.');
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('btn_sfx_summon').setLabel('🔊 Summon SFX Bot').setStyle(ButtonStyle.Success)
+        );
+        await channel.send({ embeds: [embed], components: [row] });
+    } catch(e) {}
 }
 
 function startBot() {
-    const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages] });
+    const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
     const player = new Player(client);
     client.player = player;
-    client.panelMessages = [];
-
+    
     player.events.on('error', (q, e) => logger.error(`Player Error: ${e.message}`));
     player.events.on('playerError', (q, e) => logger.error(`Audio Dispatch Error: ${e.message}`));
+
+    player.events.on('playerStart', (queue, track) => { updatePanel(queue); });
+    player.events.on('audioTrackAdd', (queue) => updatePanel(queue));
+    player.events.on('emptyQueue', (queue) => { updatePanel(queue); });
+    player.events.on('disconnect', (queue) => { updatePanel(queue); ensureStandbyBanner(client); });
+    player.events.on('volumeChange', (queue) => updatePanel(queue));
 
     client.once('clientReady', async () => {
         try {
@@ -25,6 +75,7 @@ function startBot() {
         } catch(e) { logger.warn(`Extractor registration note: ${e.message}`); }
 
         logger.info(`🤖 Miko SFX Bot logged in as ${client.user.tag}`);
+        await ensureStandbyBanner(client);
 
         if (process.env.CLIENT_ID && process.env.DISCORD_TOKEN) {
             const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -32,81 +83,101 @@ function startBot() {
             try {
                 await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: cmds });
                 client.guilds.cache.forEach(g => rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, g.id), { body: cmds }).catch(()=>{}));
-            } catch(err) { logger.error(`Command registration warning: ${err.message}`); }
+            } catch(err) {}
         }
     });
 
-    function buildPanel() {
+    async function deployControlPanel(guild, channel, targetTextChannel, interaction = null) {
+        const queue = player.nodes.create(guild, { metadata: { channel: targetTextChannel, panelMessage: null }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 });
+        if (!queue.connection) await queue.connect(channel);
+        
+        await cleanChannel(targetTextChannel, client);
+        
+        const embed = new EmbedBuilder().setColor('#f9e2af').setTitle('🎛️ Miko SFX Control Panel').setDescription('*SFX Engine standing by. Select a sound to broadcast.*');
+        
+        const row1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('btn_sfx_pause').setLabel('⏯️ Pause / Play').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('btn_sfx_skip').setLabel('⏭️ Skip').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('btn_sfx_loop_track').setLabel('🔂 Loop 1').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('btn_sfx_loop_off').setLabel('❌ Loop Off').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('btn_sfx_stop').setLabel('⏹️ Stop SFX').setStyle(ButtonStyle.Danger)
+        );
+
         const config = getConfig();
-        const embed = new EmbedBuilder()
-            .setColor('#f9e2af')
-            .setTitle('🎙️ Miko SFX Interactive Soundboard')
-            .setDescription('Click any active button below to fire instant audio into your voice channel.');
-        
-        const rows = [];
-        let currentRow = new ActionRowBuilder();
-        const sounds = config.sounds || [];
-        
-        sounds.forEach((s, i) => {
-            const btn = new ButtonBuilder()
-                .setCustomId(`sfx_${s.id}`)
-                .setLabel((s.name || `Slot ${s.id}`).substring(0, 80))
-                .setStyle(s.file ? ButtonStyle.Success : ButtonStyle.Secondary)
-                .setDisabled(!s.file);
-            
-            currentRow.addComponents(btn);
-            if ((i + 1) % 4 === 0 || i === sounds.length - 1) {
-                rows.push(currentRow);
-                currentRow = new ActionRowBuilder();
-            }
-        });
-        return { embeds: [embed], components: rows };
+        const activeSounds = (config.sounds || []).filter(s => s.file);
+        const row2 = new ActionRowBuilder();
+
+        if (activeSounds.length > 0) {
+            const menu = new StringSelectMenuBuilder().setCustomId('menu_sfx_play').setPlaceholder('Select an SFX to play...');
+            activeSounds.forEach(s => { menu.addOptions({ label: (s.name || `Slot ${s.id}`).substring(0, 95), value: s.id.toString() }); });
+            row2.addComponents(menu);
+        } else {
+            const menu = new StringSelectMenuBuilder().setCustomId('menu_sfx_empty').setPlaceholder('No SFX uploaded yet...').setDisabled(true);
+            menu.addOptions({ label: 'Empty', value: '0' });
+            row2.addComponents(menu);
+        }
+
+        let msg = await targetTextChannel.send({ embeds: [embed], components: [row1, row2] });
+        queue.metadata.panelMessage = msg;
+        updatePanel(queue);
+        if (interaction) await interaction.followUp({ content: '✅ SFX Control Panel activated.', flags: [ 64 ] });
     }
 
-    client.refreshPanel = async () => {
-        for (const msg of client.panelMessages) {
-            try { await msg.edit(buildPanel()); } catch(e) {}
-        }
-    };
-
     client.on('interactionCreate', async interaction => {
-        if (interaction.isChatInputCommand() && interaction.commandName === 'soundboard') {
-            const channel = interaction.member?.voice?.channel;
-            if (!channel) return interaction.reply({ content: '❌ Join a Voice Channel first to summon SFX.', flags: [ 64 ] });
-            
-            await interaction.deferReply({ flags: [ 64 ] });
-            const queue = player.nodes.create(interaction.guild, { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false });
-            if (!queue.connection) await queue.connect(channel);
-            
-            const panelData = buildPanel();
-            const msg = await interaction.channel.send(panelData);
-            client.panelMessages.push(msg);
-            return interaction.followUp({ content: '✅ SFX Soundboard deployed.', flags: [ 64 ] });
-        }
-
-        if (interaction.isButton() && interaction.customId.startsWith('sfx_')) {
-            const slotId = parseInt(interaction.customId.split('_')[1]);
-            const config = getConfig();
-            const sound = (config.sounds || []).find(s => s.id === slotId);
-            if (!sound || !sound.file) return interaction.reply({ content: '❌ Tile is empty.', flags: [ 64 ] });
-
-            const channel = interaction.member?.voice?.channel;
-            if (!channel) return interaction.reply({ content: '❌ You must be in a Voice Channel to play sound effects.', flags: [ 64 ] });
-
-            try {
-                const absPath = path.resolve(__dirname, sound.file);
-                await player.play(channel, absPath, { nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 } });
-                return interaction.reply({ content: `🔊 Playing: **${sound.name}**`, flags: [ 64 ] });
-            } catch(err) {
-                return interaction.reply({ content: `❌ Playback error: ${err.message}`, flags: [ 64 ] });
+        try {
+            if (interaction.isChatInputCommand() && interaction.commandName === 'soundboard') {
+                const channel = interaction.member?.voice?.channel;
+                if (!channel) return interaction.reply({ content: '❌ Join a Voice Channel first to summon SFX.', flags: [ 64 ] });
+                await interaction.deferReply({ flags: [ 64 ] });
+                await deployControlPanel(interaction.guild, channel, interaction.channel, interaction);
             }
-        }
+
+            if (interaction.isButton()) {
+                if (interaction.customId === 'btn_sfx_summon') {
+                    const channel = interaction.member?.voice?.channel;
+                    if (!channel) return interaction.reply({ content: '❌ You must be in a Voice Channel!', flags: [ 64 ] });
+                    await interaction.deferReply({ flags: [ 64 ] });
+                    await deployControlPanel(interaction.guild, channel, interaction.channel, null);
+                    return interaction.followUp({ content: `✅ SFX Bot joined **${channel.name}**!`, flags: [ 64 ] });
+                }
+
+                const queue = player.nodes.get(interaction.guildId);
+                if (!queue) return interaction.reply({ content: 'Nothing playing.', flags: [ 64 ] });
+
+                if (interaction.customId === 'btn_sfx_pause') { queue.node.setPaused(!queue.node.isPaused()); await interaction.reply({ content: '⏯️ Toggled playback.', flags: [ 64 ] }); updatePanel(queue); }
+                if (interaction.customId === 'btn_sfx_skip') { queue.node.skip(); await interaction.reply({ content: '⏭️ Skipped sound.', flags: [ 64 ] }); }
+                if (interaction.customId === 'btn_sfx_stop') { queue.node.setPaused(false); queue.tracks.clear(); queue.node.skip(); await interaction.reply({ content: '⏹️ Cleared SFX queue.', flags: [ 64 ] }); updatePanel(queue); }
+                if (interaction.customId === 'btn_sfx_loop_track') { queue.setRepeatMode(QueueRepeatMode.TRACK); await interaction.reply({ content: '🔂 Looping single sound.', flags: [ 64 ] }); updatePanel(queue); }
+                if (interaction.customId === 'btn_sfx_loop_off') { queue.setRepeatMode(QueueRepeatMode.OFF); await interaction.reply({ content: '❌ Loop disabled.', flags: [ 64 ] }); updatePanel(queue); }
+            }
+
+            if (interaction.isStringSelectMenu() && interaction.customId === 'menu_sfx_play') {
+                await interaction.deferReply({ flags: [ 64 ] });
+                const slotId = parseInt(interaction.values[0]);
+                const config = getConfig();
+                const sound = (config.sounds || []).find(s => s.id === slotId);
+                if (!sound || !sound.file) return interaction.followUp({ content: '❌ Audio missing.', flags: [ 64 ] });
+                
+                const port = process.env.PORT || 3001;
+                const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}`;
+                const channel = interaction.member.voice.channel;
+                
+                try {
+                    const queue = player.nodes.get(interaction.guild.id);
+                    await player.play(channel, fileUrl, { 
+                        nodeOptions: { metadata: { channel: interaction.channel, panelMessage: queue?.metadata?.panelMessage }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 },
+                        requestedBy: interaction.user 
+                    });
+                    await interaction.followUp({ content: `✅ Playing: **${sound.name}**`, flags: [ 64 ] });
+                } catch(e) {
+                    await interaction.followUp({ content: `❌ Error: ${e.message}`, flags: [ 64 ] });
+                }
+            }
+        } catch (err) { try { await interaction.reply({ content: '❌ Action error.', flags: [ 64 ] }); } catch(e){} }
     });
 
     if (process.env.DISCORD_TOKEN && !process.env.DISCORD_TOKEN.includes('YOUR_SFX')) {
         client.login(process.env.DISCORD_TOKEN).catch(e => logger.error(`Login failed: ${e.message}`));
-    } else {
-        logger.warn('Awaiting valid DISCORD_TOKEN in C:\\Apps\\MikoDiscordSFXBot\\.env');
     }
 
     return client;

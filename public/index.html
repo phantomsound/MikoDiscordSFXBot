@@ -26,13 +26,19 @@
         .status-dot { height: 10px; width: 10px; background-color: var(--red); border-radius: 50%; display: inline-block; margin-right: 6px; }
         .status-dot.active { background-color: var(--green); }
         .terminal-box { background: #11111b; border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem; font-family: 'Consolas', monospace; font-size: 0.82rem; height: 230px; overflow-y: auto; white-space: pre-wrap; color: #a6e3a1; margin-top: 0.6rem; }
+        .accordion-header { background: var(--input); padding: 0.8rem 1rem; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); margin-top: 0.5rem; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 0.95rem; }
+        .accordion-body { display: none; background: #181825; padding: 1rem; border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; font-size: 0.88rem; color: #bac2de; line-height: 1.5; }
+        .accordion-body.open { display: block; }
     </style>
 </head>
 <body>
     <div class="header">
         <div>
-            <h1 style="margin:0 0 4px 0;">🎙️ Miko SFX Dashboard</h1>
-            <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <h1 id="dashTitle">🎙️ Miko SFX Dashboard</h1>
+                <button onclick="editDashName()" class="btn-secondary" style="padding: 4px 10px; font-size: 0.8rem;">✏️ Rename</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; margin-top: 4px;">
                 <span style="color: var(--green); font-size: 0.88rem; font-weight: bold;">🖥️ Host: <span id="hostBadge">MIKOHOME</span></span>
                 <span style="font-size: 0.85rem; color: #a6adc8;">| Active Guild:</span>
                 <select id="guildSelector" onchange="switchGuildContext()" style="width: auto; padding: 2px 8px; font-size: 0.85rem;"></select>
@@ -49,7 +55,6 @@
         <button class="tab-btn" onclick="switchTab('tools')">⚙️ Controls & Logs</button>
     </div>
 
-    <!-- TAB: SOUNDBOARD -->
     <div id="tab-soundboard" class="tab-content active">
         <div class="card" style="border-left: 4px solid var(--yellow); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div style="display: flex; gap: 10px; align-items: center;">
@@ -64,20 +69,37 @@
                 <button onclick="stopAudio()" class="btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">⏹️ Stop SFX</button>
             </div>
         </div>
-
         <div class="grid" id="sfxGrid">Loading Soundboard Tiles...</div>
     </div>
 
-    <!-- TAB: TOOLS & LOGS -->
     <div id="tab-tools" class="tab-content">
-        <div class="card" style="border-left: 4px solid var(--green);">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+            <div class="card">
+                <h3>Discord Channel Routing</h3>
+                <span class="help-text">Configure where control panels and automated logs are posted.</span>
+                <label style="display:block; margin-top:8px; font-weight:600; font-size:0.88rem;">Command / Panel Channel:</label>
+                <select id="panelChannelId"><option value="">-- No Restriction --</option></select>
+                
+                <button onclick="saveToolsConfig()" class="btn-success" style="margin-top: 1.5rem; width: 100%;">💾 Save UI Routing</button>
+            </div>
+
+            <div class="card">
+                <h3>📖 Miko SFX Quick-Start Guide</h3>
+                <div class="accordion-header" onclick="toggleAccordion('guide-1')"><span>1. File Uploads & Playback</span><span>▼</span></div>
+                <div id="guide-1" class="accordion-body">Uploaded audio files bypass Discord's strict file system rules by streaming through an invisible local HTTP web server built into the dashboard.</div>
+                
+                <div class="accordion-header" onclick="toggleAccordion('guide-2')"><span>2. Dedicated Standby Hubs</span><span>▼</span></div>
+                <div id="guide-2" class="accordion-body">Because Miko SFX and Miko Music are two independent bots, they will never delete each other's control panels. You can safely assign them both to <code>#music-command-center</code>. They will cleanly stack their Yellow and Blue panels at the bottom of the chat.</div>
+            </div>
+        </div>
+
+        <div class="card full" style="border-left: 4px solid var(--green);">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem;">
                 <div>
                     <h3 style="margin: 0;">🖥️ Diagnostics & Process Management</h3>
                     <span style="font-size:0.82rem; color:#a6adc8;">Host Time: <b id="systemTimeLabel">--</b></span>
                 </div>
                 <div style="display: flex; gap: 8px;">
-                    <button onclick="window.open('/api/logs/export')" class="btn-secondary">📥 Export (.txt)</button>
                     <button onclick="fetchLogs()" class="btn-secondary">🔄 Refresh</button>
                     <button onclick="restartService()" class="btn-danger">⚠️ Restart SFX Service</button>
                 </div>
@@ -90,12 +112,8 @@
         let isMuted = false, preMuteVol = 100, storedClientId = '';
 
         function getActiveGuildId() { return document.getElementById('guildSelector').value; }
-        function switchTab(id) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.querySelector(`.tab-btn[onclick="switchTab('${id}')"]`).classList.add('active');
-            document.getElementById(`tab-${id}`).classList.add('active');
-        }
+        function switchTab(id) { document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.querySelector(`.tab-btn[onclick="switchTab('${id}')"]`).classList.add('active'); document.getElementById(`tab-${id}`).classList.add('active'); }
+        function toggleAccordion(id) { document.getElementById(id).classList.toggle('open'); }
 
         function switchGuildContext() { loadChannels(); }
 
@@ -111,23 +129,40 @@
 
             fetch('/api/config').then(r => r.json()).then(data => {
                 storedClientId = data.clientId || '';
-                const sounds = (data.config && data.config.sounds) ? data.config.sounds : [];
-                renderGrid(sounds);
-            }).catch(() => {
-                renderGrid(Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null })));
-            });
+                if (data.config) {
+                    if (data.config.dashboardName) document.getElementById('dashTitle').innerText = data.config.dashboardName;
+                    renderGrid(data.config.sounds || []);
+                }
+            }).catch(() => { renderGrid(Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null }))); });
 
             fetchLogs();
         }
 
         function loadChannels() {
             const guildId = getActiveGuildId();
+            fetch(`/api/channels?guildId=${guildId}`).then(r => r.json()).then(channels => {
+                const panel = document.getElementById('panelChannelId');
+                panel.innerHTML = '<option value="">-- No Restriction --</option>';
+                channels.forEach(c => { panel.innerHTML += `<option value="${c.id}">${c.name}</option>`; });
+                fetch('/api/config').then(r => r.json()).then(data => {
+                    if (data.config && data.config.panelChannelId) panel.value = data.config.panelChannelId;
+                });
+            });
+
             fetch(`/api/voice-channels?guildId=${guildId}`).then(r => r.json()).then(channels => {
                 const vcSelect = document.getElementById('voiceChannelSelect');
                 vcSelect.innerHTML = '<option value="">-- Voice Channel --</option>';
                 channels.forEach(c => vcSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`);
             });
         }
+
+        function saveToolsConfig() {
+            fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ 
+                panelChannelId: document.getElementById('panelChannelId').value
+            })}).then(() => alert(`Tool settings saved!`));
+        }
+
+        function editDashName() { const n = prompt("Enter new dashboard name:", document.getElementById('dashTitle').innerText); if (n && n.trim() !== '') fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dashboardName: n.trim() }) }).then(() => document.getElementById('dashTitle').innerText = n.trim()); }
 
         function renderGrid(sounds) {
             const grid = document.getElementById('sfxGrid');
@@ -158,77 +193,28 @@
             const nameInput = document.getElementById(`name_${id}`).value;
             const formData = new FormData();
             formData.append('slotId', id);
-            formData.append('name', nameInput);
+            
+            // Critical fix to prevent missing names
+            formData.append('name', (nameInput && nameInput.trim() !== '') ? nameInput : `Slot ${id}`);
+            
             if (fileInput.files[0]) formData.append('audio', fileInput.files[0]);
-
-            fetch('/api/upload', { method: 'POST', body: formData })
-                .then(r => r.json())
-                .then(res => { if (res.success) { alert(`Slot ${id} updated!`); loadConfig(); } });
+            fetch('/api/upload', { method: 'POST', body: formData }).then(r => r.json()).then(res => { if (res.success) { alert(`Slot ${id} updated!`); loadConfig(); } });
         }
 
-        function playAudio(id) {
-            fetch('/api/play', { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({ slotId: id, guildId: getActiveGuildId() }) 
-            }).then(r => r.json()).then(res => { if (!res.success) alert(res.message); else fetchLogs(); });
-        }
+        function playAudio(id) { fetch('/api/play', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ slotId: id, guildId: getActiveGuildId() }) }).then(r => r.json()).then(res => { if (!res.success) alert(res.message); else fetchLogs(); }); }
+        function stopAudio() { fetch('/api/control', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action: 'stop', guildId: getActiveGuildId() }) }); }
 
-        function stopAudio() {
-            fetch('/api/control', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action: 'stop', guildId: getActiveGuildId() }) });
-        }
+        function manageVoice(action) { const channelId = document.getElementById('voiceChannelSelect').value; fetch('/api/voice', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action, channelId, guildId: getActiveGuildId() }) }).then(r => r.json()).then(res => { if(!res.success) alert(res.message); }); }
 
-        function manageVoice(action) {
-            const channelId = document.getElementById('voiceChannelSelect').value;
-            fetch('/api/voice', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action, channelId, guildId: getActiveGuildId() }) })
-            .then(r => r.json()).then(res => { if(!res.success) alert(res.message); });
-        }
+        function toggleMute() { const slider = document.getElementById('volSlider'); if (isMuted) { isMuted = false; slider.value = preMuteVol; document.getElementById('muteToggleBtn').innerText = '🔊'; } else { isMuted = true; preMuteVol = slider.value == 0 ? 100 : slider.value; slider.value = 0; document.getElementById('muteToggleBtn').innerText = '🔇'; } setVolume(); }
+        function setVolume() { const vol = document.getElementById('volSlider').value; document.getElementById('volLabel').innerText = vol; fetch('/api/volume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ volume: vol, guildId: getActiveGuildId() }) }); }
 
-        function toggleMute() {
-            const slider = document.getElementById('volSlider');
-            if (isMuted) {
-                isMuted = false;
-                slider.value = preMuteVol;
-                document.getElementById('muteToggleBtn').innerText = '🔊';
-            } else {
-                isMuted = true;
-                preMuteVol = slider.value == 0 ? 100 : slider.value;
-                slider.value = 0;
-                document.getElementById('muteToggleBtn').innerText = '🔇';
-            }
-            setVolume();
-        }
-
-        function setVolume() {
-            const vol = document.getElementById('volSlider').value;
-            document.getElementById('volLabel').innerText = vol;
-            fetch('/api/volume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ volume: vol, guildId: getActiveGuildId() }) });
-        }
-
-        function fetchLogs() {
-            fetch('/api/logs').then(r => r.json()).then(data => {
-                const b = document.getElementById('terminalBox');
-                b.innerText = data.logs || "No logs recorded yet.";
-                b.scrollTop = b.scrollHeight;
-            });
-        }
-
-        function restartService() {
-            if (confirm("Restart the Miko SFX service now?")) {
-                fetch('/api/system/restart', { method: 'POST' }).then(() => alert('Restart signal sent.'));
-            }
-        }
+        function fetchLogs() { fetch('/api/logs').then(r => r.json()).then(data => { const b = document.getElementById('terminalBox'); b.innerText = data.logs || "No logs recorded yet."; b.scrollTop = b.scrollHeight; }); }
+        function restartService() { if (confirm("Restart the Miko SFX service now?")) fetch('/api/system/restart', { method: 'POST' }).then(() => alert('Restart signal sent.')); }
 
         function inviteBot() {
             const id = storedClientId || prompt("Paste your SFX Application Client ID:");
-            if (id) {
-                const a = document.createElement('a');
-                a.href = `https://discord.com/oauth2/authorize?client_id=${id}&permissions=3148800&scope=bot%20applications.commands`;
-                a.target = '_blank';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            }
+            if (id) { const a = document.createElement('a'); a.href = `https://discord.com/oauth2/authorize?client_id=${id}&permissions=3148800&scope=bot%20applications.commands`; a.target = '_blank'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
         }
 
         setInterval(fetchLogs, 5000);
