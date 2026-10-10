@@ -4,14 +4,22 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
 
-function getConfig() { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8')); } catch (e) { return { sounds: [] }; } }
+function getConfig() { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf-8')); } catch (e) { return { sounds: [], history: [] }; } }
+function saveConfig(cfg) { fs.writeFileSync(path.join(__dirname, 'config.json'), JSON.stringify(cfg, null, 2)); }
+
+function logHistory(soundName) {
+    const config = getConfig();
+    if (!config.history) config.history = [];
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    config.history.unshift({ name: soundName, time });
+    if (config.history.length > 10) config.history.pop();
+    saveConfig(config);
+}
 
 async function cleanChannel(channel, client) {
     try {
         const msgs = await channel.messages.fetch({ limit: 50 });
-        for (const [id, m] of msgs) { 
-            if (m.author.id === client.user.id) await m.delete().catch(()=>{}); 
-        }
+        for (const [id, m] of msgs) { if (m.author.id === client.user.id) await m.delete().catch(()=>{}); }
     } catch(e) {}
 }
 
@@ -60,20 +68,14 @@ function startBot() {
     player.events.on('error', (q, e) => logger.error(`Player Error: ${e.message}`));
     player.events.on('playerError', (q, e) => logger.error(`Audio Dispatch Error: ${e.message}`));
 
-    player.events.on('playerStart', (queue, track) => { 
-        updatePanel(queue); 
-        logNowPlaying(queue.guild, track, queue);
-    });
+    player.events.on('playerStart', (queue, track) => { updatePanel(queue); logNowPlaying(queue.guild, track, queue); });
     player.events.on('audioTrackAdd', (queue) => updatePanel(queue));
     player.events.on('emptyQueue', (queue) => { updatePanel(queue); });
     player.events.on('disconnect', (queue) => { updatePanel(queue); });
     player.events.on('volumeChange', (queue) => updatePanel(queue));
 
     client.once('clientReady', async () => {
-        try {
-            const { AttachmentExtractor } = require('@discord-player/extractor');
-            await player.extractors.register(AttachmentExtractor, {});
-        } catch(e) {}
+        try { const { AttachmentExtractor } = require('@discord-player/extractor'); await player.extractors.register(AttachmentExtractor, {}); } catch(e) {}
         logger.info(`🤖 Miko SFX Bot logged in as ${client.user.tag}`);
     });
 
@@ -143,15 +145,25 @@ function startBot() {
                 if (!sound || !sound.file) return interaction.followUp({ content: '❌ Audio missing.', flags: [ 64 ] });
                 
                 const port = process.env.PORT || 3001;
-                const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}`;
+                // Cache-buster appended to bypass 304 caching errors
+                const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}?t=${Date.now()}`;
                 const channel = interaction.member.voice.channel;
                 
                 try {
-                    const queue = player.nodes.get(interaction.guild.id);
+                    const masterVol = config.defaultVolume !== undefined ? config.defaultVolume : 100;
+                    const slotVol = sound.volume !== undefined ? sound.volume : 100;
+                    const finalVol = Math.round((masterVol / 100) * slotVol);
+
+                    const queue = player.nodes.create(interaction.guild, { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 });
+                    if (!queue.connection) await queue.connect(channel);
+                    
+                    queue.node.setVolume(finalVol);
+
                     await player.play(channel, fileUrl, { 
                         nodeOptions: { metadata: { channel: interaction.channel, panelMessage: queue?.metadata?.panelMessage }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 },
                         requestedBy: interaction.user 
                     });
+                    logHistory(sound.name);
                     await interaction.followUp({ content: `✅ Playing: **${sound.name}**`, flags: [ 64 ] });
                 } catch(e) {
                     await interaction.followUp({ content: `❌ Error: ${e.message}`, flags: [ 64 ] });

@@ -1,12 +1,12 @@
 {
   "dashboardName": "Miko SFX Dashboard",
-  "panelChannelId": "",
+  "panelChannelId": "1557946904766058577",
   "logRetentionDays": 7,
   "sounds": [
     {
       "id": 1,
-      "name": "R&M",
-      "file": "uploads/sfx_1_1791658665724.mp3"
+      "name": "DDD",
+      "file": "uploads/sfx_1_1791663146198.mp3"
     },
     {
       "id": 2,
@@ -64,5 +64,7 @@
       "file": null
     }
   ],
-  "lastVoiceChannelId": "1208952718178132009"
+  "lastVoiceChannelId": "1208952718178132009",
+  "logChannelId": "1557946871152906370",
+  "autoHideMessages": true
 }
