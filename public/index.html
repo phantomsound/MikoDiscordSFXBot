@@ -86,10 +86,10 @@
             <div class="card">
                 <h3>📖 Miko SFX Quick-Start Guide</h3>
                 <div class="accordion-header" onclick="toggleAccordion('guide-1')"><span>1. File Uploads & Playback</span><span>▼</span></div>
-                <div id="guide-1" class="accordion-body">Uploaded audio files bypass Discord's strict file system rules by streaming through an invisible local HTTP web server built into the dashboard.</div>
+                <div id="guide-1" class="accordion-body">Uploaded audio files are physically saved to <code>C:\Apps\MikoDiscordSFXBot\uploads\</code>. The bot reads them directly from your hard drive, ensuring instant 0-latency streaming.</div>
                 
                 <div class="accordion-header" onclick="toggleAccordion('guide-2')"><span>2. Dedicated Standby Hubs</span><span>▼</span></div>
-                <div id="guide-2" class="accordion-body">Because Miko SFX and Miko Music are two independent bots, they will never delete each other's control panels. You can safely assign them both to <code>#music-command-center</code>. They will cleanly stack their Yellow and Blue panels at the bottom of the chat.</div>
+                <div id="guide-2" class="accordion-body">Miko Music now generates a <b>Unified Command Hub</b>. You no longer need to summon them separately. Just click <b>🎙️ Summon SFX Engine</b> on the Music bot's Standby Hub, and it will drop the SFX soundboard seamlessly below the music controls!</div>
             </div>
         </div>
 
@@ -189,13 +189,15 @@
             }
         }
 
-        function uploadAudio(id) {
-            const fileInput = document.getElementById(`file_${id}`);
-            const nameInput = document.getElementById(`name_${id}`).value;
+                function uploadAudio(id) {
+            const fileInput = document.getElementById(ile_);
+            const nameInput = document.getElementById(
+ame_).value;
             const formData = new FormData();
             formData.append('slotId', id);
             
-            formData.append('name', (nameInput && nameInput.trim() !== '') ? nameInput : `Slot ${id}`);
+            // Safely trim and preserve names so they don't blank out
+            formData.append('name', (nameInput && nameInput.trim() !== '') ? nameInput.trim() : Slot );
             
             if (fileInput.files[0]) formData.append('audio', fileInput.files[0]);
             fetch('/api/upload', { method: 'POST', body: formData }).then(r => r.json()).then(res => { if (res.success) { alert(`Slot ${id} updated!`); loadConfig(); } });
@@ -241,3 +243,4 @@
     </script>
 </body>
 </html>
+

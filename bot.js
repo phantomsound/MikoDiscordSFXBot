@@ -1,5 +1,5 @@
 ﻿const { Client, GatewayIntentBits, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, EmbedBuilder } = require('discord.js');
-const { Player, QueueRepeatMode } = require('discord-player');
+const { Player, QueueRepeatMode, QueryType } = require('discord-player');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
@@ -34,23 +34,8 @@ async function updatePanel(queue) {
 }
 
 async function ensureStandbyBanner(client) {
-    const config = getConfig();
-    if (!config.panelChannelId) return;
-    try {
-        const channel = client.channels.cache.get(config.panelChannelId);
-        if (!channel || !channel.isTextBased()) return;
-
-        await cleanChannel(channel, client);
-        
-        const embed = new EmbedBuilder()
-            .setColor('#f9e2af')
-            .setTitle('🎙️ Miko SFX Standby Hub')
-            .setDescription('Click below to summon the Soundboard Engine into your active voice channel.');
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('btn_sfx_summon').setLabel('🔊 Summon SFX Bot').setStyle(ButtonStyle.Success)
-        );
-        await channel.send({ embeds: [embed], components: [row] });
-    } catch(e) {}
+    // Relying on Music Bot's Unified Standby Hub. No standalone generation required.
+}
 }
 
 function startBot() {
@@ -185,3 +170,4 @@ function startBot() {
     return client;
 }
 module.exports = { startBot };
+

@@ -6,6 +6,7 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const logger = require('./logger');
 const { startBot } = require('./bot');
+const { QueryType } = require('discord-player');
 
 const app = express();
 app.use(express.json());
@@ -199,3 +200,4 @@ app.post('/api/system/restart', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => logger.info(`🎙️ Miko SFX Web UI listening on port ${PORT}`));
+
