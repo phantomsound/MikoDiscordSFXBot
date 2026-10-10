@@ -1,5 +1,5 @@
 ﻿const { Client, GatewayIntentBits, REST, Routes, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, EmbedBuilder } = require('discord.js');
-const { Player, QueueRepeatMode } = require('discord-player');
+const { Player, QueueRepeatMode, QueryType } = require('discord-player');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
@@ -19,7 +19,9 @@ function logHistory(soundName) {
 async function cleanChannel(channel, client) {
     try {
         const msgs = await channel.messages.fetch({ limit: 50 });
-        for (const [id, m] of msgs) { if (m.author.id === client.user.id) await m.delete().catch(()=>{}); }
+        for (const [id, m] of msgs) { 
+            if (m.author.id === client.user.id) await m.delete().catch(()=>{}); 
+        }
     } catch(e) {}
 }
 
@@ -144,9 +146,7 @@ function startBot() {
                 const sound = (config.sounds || []).find(s => s.id === slotId);
                 if (!sound || !sound.file) return interaction.followUp({ content: '❌ Audio missing.', flags: [ 64 ] });
                 
-                const port = process.env.PORT || 3001;
-                // Cache-buster appended to bypass 304 caching errors
-                const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}?t=${Date.now()}`;
+                const absPath = path.resolve(__dirname, sound.file);
                 const channel = interaction.member.voice.channel;
                 
                 try {
@@ -159,10 +159,12 @@ function startBot() {
                     
                     queue.node.setVolume(finalVol);
 
-                    await player.play(channel, fileUrl, { 
+                    await player.play(channel, absPath, { 
+                        searchEngine: QueryType.FILE,
                         nodeOptions: { metadata: { channel: interaction.channel, panelMessage: queue?.metadata?.panelMessage }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 },
                         requestedBy: interaction.user 
                     });
+                    
                     logHistory(sound.name);
                     await interaction.followUp({ content: `✅ Playing: **${sound.name}**`, flags: [ 64 ] });
                 } catch(e) {

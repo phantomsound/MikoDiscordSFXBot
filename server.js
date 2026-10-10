@@ -10,7 +10,7 @@ const { startBot } = require('./bot');
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), { etag: false, lastModified: false }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
 
@@ -77,6 +77,7 @@ app.post('/api/settings', (req, res) => {
 app.post('/api/slot-volume', (req, res) => {
     const { slotId, volume } = req.body;
     const config = getConfig();
+    if (!config.sounds) config.sounds = [];
     let slot = config.sounds.find(s => s.id === parseInt(slotId));
     if (slot) {
         slot.volume = parseInt(volume);
@@ -142,9 +143,10 @@ app.get('/api/queue', (req, res) => {
     }
     const finalVcId = vcId || config.lastVoiceChannelId || '';
     const defVol = config.defaultVolume !== undefined ? config.defaultVolume : 100;
+    const history = config.history || [];
 
-    if (!queue) return res.json({ current: null, tracks: [], volume: defVol, voiceChannelId: finalVcId });
-    res.json({ current: queue.currentTrack ? queue.currentTrack.title : null, tracks: [], volume: queue.node.volume, voiceChannelId: finalVcId });
+    if (!queue) return res.json({ current: null, tracks: [], volume: defVol, voiceChannelId: finalVcId, history });
+    res.json({ current: queue.currentTrack ? queue.currentTrack.title : null, tracks: [], volume: queue.node.volume, voiceChannelId: finalVcId, history });
 });
 
 app.post('/api/play', async (req, res) => {
@@ -166,19 +168,16 @@ app.post('/api/play', async (req, res) => {
 
     try {
         const port = process.env.PORT || 3001;
-        // Anti-304 Cache Buster Parameter added to ensure 200 OK Stream
         const fileUrl = `http://127.0.0.1:${port}/${sound.file.replace(/\\/g, '/')}?t=${Date.now()}`;
         
-        // Calculate Independent Volume: (MasterVol / 100) * SlotVol
         const masterVol = config.defaultVolume !== undefined ? config.defaultVolume : 100;
         const slotVol = sound.volume !== undefined ? sound.volume : 100;
         const finalVol = Math.round((masterVol / 100) * slotVol);
 
-        const queue = discordClient.player.nodes.create(vc.guild, { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false });
+        const queue = discordClient.player.nodes.create(vc.guild, { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 });
         if (!queue.connection) await queue.connect(vc);
         
         queue.node.setVolume(finalVol);
-
         await discordClient.player.play(vc, fileUrl, { nodeOptions: { leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false, bufferingTimeout: 0 } });
         
         logHistory(sound.name);
@@ -198,7 +197,9 @@ app.post('/api/control', (req, res) => {
 });
 
 app.post('/api/volume', (req, res) => {
+    const queue = getTargetQueue(req.body.guildId);
     const vol = parseInt(req.body.volume);
+    if (queue && !isNaN(vol)) queue.node.setVolume(vol);
     const config = getConfig();
     config.defaultVolume = vol;
     saveConfig(config);

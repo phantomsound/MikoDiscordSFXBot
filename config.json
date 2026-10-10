@@ -66,5 +66,6 @@
   ],
   "lastVoiceChannelId": "1208952718178132009",
   "logChannelId": "1557946871152906370",
-  "autoHideMessages": true
+  "autoHideMessages": true,
+  "defaultVolume": 25
 }

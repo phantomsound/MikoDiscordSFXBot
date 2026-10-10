@@ -32,8 +32,8 @@
         .status-dot.active { background-color: var(--green); }
         
         .history-list { list-style: none; padding: 0; margin: 0; }
-        .history-list li { background: var(--input); padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; font-size: 0.85rem; border: 1px solid var(--border); display: flex; justify-content: space-between; }
-        .history-time { color: #a6adc8; font-size: 0.75rem; }
+        .history-list li { background: var(--input); padding: 0.5rem; margin-bottom: 0.5rem; border-radius: 4px; font-size: 0.85rem; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;}
+        .history-time { color: #a6adc8; font-size: 0.75rem; white-space: nowrap; margin-left: 8px;}
 
         .terminal-box { background: #11111b; border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem; font-family: 'Consolas', monospace; font-size: 0.82rem; height: 230px; overflow-y: auto; white-space: pre-wrap; color: #a6e3a1; margin-top: 0.6rem; }
     </style>
@@ -71,7 +71,7 @@
             </div>
             <div style="display: flex; align-items: center; gap: 10px; background: var(--input); padding: 0.4rem 0.9rem; border-radius: 20px; border: 1px solid var(--border);">
                 <span>Master SFX Vol: <b id="volLabel">100</b>%</span>
-                <button id="muteToggleBtn" onclick="toggleMute()" style="padding:0; background:transparent; font-size:1.1rem;">🔊</button>
+                <button id="muteToggleBtn" onclick="toggleMute()" style="padding:0; background:transparent; font-size:1.1rem; cursor:pointer; border:none; color:var(--text);">🔊</button>
                 <input type="range" id="volSlider" min="0" max="200" value="100" onchange="setVolume()" style="width: 120px; cursor: pointer;">
                 <button onclick="stopAudio()" class="btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">⏹️ Stop SFX</button>
             </div>
@@ -79,7 +79,7 @@
         
         <div class="main-layout">
             <div class="grid" id="sfxGrid">Loading Soundboard Tiles...</div>
-            <div class="card" style="margin-bottom:0;">
+            <div class="card" style="margin-bottom:0; align-self: start;">
                 <h3 style="margin-top:0;">📜 Last 10 Played</h3>
                 <ul class="history-list" id="historyList">
                     <li><span style="color:#6c7086;">No history available.</span></li>
@@ -138,6 +138,7 @@
         function getActiveGuildId() { return document.getElementById('guildSelector').value; }
         function switchTab(id) { document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active')); document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.querySelector(`.tab-btn[onclick="switchTab('${id}')"]`).classList.add('active'); document.getElementById(`tab-${id}`).classList.add('active'); }
         function toggleAccordion(id) { document.getElementById(id).classList.toggle('open'); }
+        function escapeHTML(str) { return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag])); }
 
         function switchGuildContext() { loadChannels(); refreshQueue(); }
 
@@ -157,7 +158,6 @@
                     if (data.config.dashboardName) document.getElementById('dashTitle').innerText = data.config.dashboardName;
                     if (data.config.autoHideMessages) document.getElementById('autoHideMessages').checked = true;
                     renderGrid(data.config.sounds || []);
-                    renderHistory(data.config.history || []);
                 }
             }).catch(() => { renderGrid(Array.from({ length: 12 }, (_, i) => ({ id: i + 1, name: `Slot ${i + 1}`, file: null, volume: 100 }))); });
 
@@ -200,6 +200,7 @@
 
         function renderHistory(historyArray) {
             const hl = document.getElementById('historyList');
+            if (!hl) return;
             if (!historyArray || historyArray.length === 0) {
                 hl.innerHTML = `<li><span style="color:#6c7086;">No history available.</span></li>`;
                 return;
@@ -223,8 +224,8 @@
                         <input type="text" id="name_${s.id}" value="${s.name || `Slot ${s.id}`}" placeholder="Tile Label" style="margin-bottom: 6px;">
                         
                         <div style="display:flex; align-items:center; gap:8px; margin-bottom: 8px;">
-                            <span style="font-size:0.75rem; font-weight:bold;">Vol: <span id="slotVolLabel_${s.id}">${s.volume || 100}</span>%</span>
-                            <input type="range" min="10" max="200" value="${s.volume || 100}" onchange="setSlotVolume(${s.id}, this.value)" style="height:10px; padding:0;">
+                            <span style="font-size:0.75rem; font-weight:bold; white-space:nowrap;">Vol: <span id="slotVolLabel_${s.id}">${s.volume !== undefined ? s.volume : 100}</span>%</span>
+                            <input type="range" min="10" max="200" value="${s.volume !== undefined ? s.volume : 100}" onchange="setSlotVolume(${s.id}, this.value)" style="height:10px; padding:0;">
                         </div>
 
                         <input type="file" id="file_${s.id}" accept=".mp3,.wav,.ogg" style="font-size: 0.75rem; margin-bottom: 8px;">
@@ -252,7 +253,7 @@
             formData.append('name', (nameInput && nameInput.trim() !== '') ? nameInput : `Slot ${id}`);
             
             if (fileInput.files[0]) formData.append('audio', fileInput.files[0]);
-            fetch('/api/upload', { method: 'POST', body: formData }).then(r => r.json()).then(res => { if (res.success) { loadConfig(); } });
+            fetch('/api/upload', { method: 'POST', body: formData }).then(r => r.json()).then(res => { if (res.success) { alert(`Slot ${id} updated!`); loadConfig(); } });
         }
 
         function clearSlot(id) {
@@ -262,12 +263,12 @@
             }
         }
 
-        function playAudio(id) { fetch('/api/play', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ slotId: id, guildId: getActiveGuildId() }) }).then(r => r.json()).then(res => { if (!res.success) alert(res.message); else { fetchLogs(); loadConfig(); } }); }
+        function playAudio(id) { fetch('/api/play', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ slotId: id, guildId: getActiveGuildId() }) }).then(r => r.json()).then(res => { if (!res.success) alert(res.message); else { fetchLogs(); refreshQueue(); } }); }
         function stopAudio() { fetch('/api/control', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action: 'stop', guildId: getActiveGuildId() }) }); }
 
         function manageVoice(action) { const channelId = document.getElementById('voiceChannelSelect').value; fetch('/api/voice', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action, channelId, guildId: getActiveGuildId() }) }).then(r => r.json()).then(res => { if(!res.success) alert(res.message); }); }
 
-        function toggleMute() { const slider = document.getElementById('volSlider'); if (isMuted) { isMuted = false; slider.value = preMuteVol; document.getElementById('muteToggleBtn').innerText = '🔊'; } else { isMuted = true; preMuteVol = slider.value == 0 ? 100 : s.value; slider.value = 0; document.getElementById('muteToggleBtn').innerText = '🔇'; } setVolume(); }
+        function toggleMute() { const slider = document.getElementById('volSlider'); if (isMuted) { isMuted = false; slider.value = preMuteVol; document.getElementById('muteToggleBtn').innerText = '🔊'; } else { isMuted = true; preMuteVol = slider.value == 0 ? 100 : slider.value; slider.value = 0; document.getElementById('muteToggleBtn').innerText = '🔇'; } setVolume(); }
         function setVolume() { const vol = document.getElementById('volSlider').value; document.getElementById('volLabel').innerText = vol; if (vol > 0 && isMuted) { isMuted = false; document.getElementById('muteToggleBtn').innerText = '🔊'; } else if (vol == 0 && !isMuted) { isMuted = true; document.getElementById('muteToggleBtn').innerText = '🔇'; } fetch('/api/volume', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ volume: vol, guildId: getActiveGuildId() }) }); }
 
         function refreshQueue() {
@@ -285,6 +286,7 @@
                         dropdown.value = data.voiceChannelId;
                     }
                 }
+                if (data.history) renderHistory(data.history);
             });
         }
 
@@ -295,8 +297,6 @@
             const id = storedClientId || prompt("Paste your SFX Application Client ID:");
             if (id) { const a = document.createElement('a'); a.href = `https://discord.com/oauth2/authorize?client_id=${id}&permissions=3148800&scope=bot%20applications.commands`; a.target = '_blank'; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
         }
-
-        function escapeHTML(str) { return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag])); }
 
         setInterval(fetchLogs, 5000);
         setInterval(refreshQueue, 3500);
