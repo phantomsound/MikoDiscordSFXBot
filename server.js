@@ -149,7 +149,11 @@ app.post('/api/voice', async (req, res) => {
         const config = getConfig();
         const txt = config.panelChannelId ? vc.guild.channels.cache.get(config.panelChannelId) : vc.guild.channels.cache.filter(c=>c.isTextBased()).first();
         const newQueue = discordClient.player.nodes.create(vc.guild, { metadata: { channel: txt, panelMessage: null }, leaveOnEmpty: false, leaveOnEnd: false, leaveOnStop: false });
+                const config = getConfig();
+        config.lastVoiceChannelId = channelId;
+        saveConfig(config);
         await newQueue.connect(vc);
+        if (config.defaultVolume !== undefined) newQueue.node.setVolume(config.defaultVolume);
         logger.info(`SFX Bot joined voice channel: ${vc.name}`);
         return res.json({ success: true });
     }
@@ -169,3 +173,4 @@ app.post('/api/system/restart', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => logger.info(`🎙️ Miko SFX Web UI listening on port ${PORT}`));
+
